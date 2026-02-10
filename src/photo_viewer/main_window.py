@@ -6,7 +6,8 @@ three-pane layout (folder tree, file list/thumbnails, preview/metadata).
 All panes are built via private helpers and wired with QSplitters for
 resizable layout. The folder tree mirrors the real filesystem (rooted at
 the user's home directory) and is populated lazily as folders are expanded.
-The file list and preview panes still use placeholder content for now.
+The center pane uses the ThumbnailGridWidget component; the preview pane
+is still a placeholder.
 
 Author: Photo Viewer Project
 Date: 2025-02-10
@@ -20,13 +21,15 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QListView,
     QMainWindow,
     QSplitter,
     QTreeView,
     QVBoxLayout,
     QWidget,
 )
+
+from photo_viewer.components.thumbnail_grid import ThumbnailGridWidget
+from photo_viewer.services.thumbnails import ThumbnailService
 
 
 class MainWindow(QMainWindow):
@@ -35,7 +38,7 @@ class MainWindow(QMainWindow):
 
     Starts in "Manage" mode with an ACDSee-style three-pane layout:
     - Left:   Folder tree rooted at the user's home directory
-    - Center: File list / thumbnail area (placeholder; will support grid and details view)
+    - Center: ThumbnailGridWidget component (grid of thumbnails with async loading)
     - Bottom-right: Preview / metadata pane (placeholder; will show selected image and EXIF)
     """
 
@@ -50,6 +53,11 @@ class MainWindow(QMainWindow):
         self._folder_root_path = Path.home()
         self._folder_root_item: QStandardItem | None = None
         self._folder_model = self._build_folder_model()
+
+        # Thumbnail service for the center pane; decoding runs on background threads.
+        self._thumbnail_service = ThumbnailService(parent=self)
+        # Center pane: thumbnail grid component (created in _create_right_pane).
+        self._thumbnail_grid: ThumbnailGridWidget | None = None
 
         self._init_ui()
 
@@ -111,6 +119,11 @@ class MainWindow(QMainWindow):
 
         # When a folder is expanded, lazily populate its child directories.
         tree_view.expanded.connect(self._on_folder_expanded)
+
+        # When the current folder selection changes, update the file list pane.
+        selection_model = tree_view.selectionModel()
+        if selection_model is not None:
+            selection_model.currentChanged.connect(self._on_folder_selected)
 
         layout.addWidget(header)
         layout.addWidget(tree_view)
@@ -200,7 +213,7 @@ class MainWindow(QMainWindow):
 
         vertical_splitter = QSplitter(Qt.Orientation.Vertical, container)
 
-        file_list_pane = self._create_file_list_pane()
+        file_list_pane = self._create_thumbnail_grid_pane()
         preview_pane = self._create_preview_pane()
 
         vertical_splitter.addWidget(file_list_pane)
@@ -212,37 +225,19 @@ class MainWindow(QMainWindow):
         layout.addWidget(vertical_splitter)
         return container
 
-    def _create_file_list_pane(self) -> QWidget:
+    def _create_thumbnail_grid_pane(self) -> QWidget:
         """
-        Create the central file list / thumbnail pane (placeholder).
+        Create the central pane using the ThumbnailGridWidget component.
 
-        Currently a QListView with dummy image filenames (IMG_0001.jpg …)
-        to confirm sizing and scroll behaviour. Will be replaced by a
-        virtualised thumbnail grid and/or details list with async loading.
+        The component owns the list model, path-to-item mapping, and
+        thumbnail updates; we only pass the folder path when selection changes.
         """
-        frame = QFrame(self)
-        frame.setFrameShape(QFrame.Shape.StyledPanel)
-
-        layout = QVBoxLayout(frame)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(4)
-
-        header = QLabel("Files (Thumbnails / Details view placeholder)", frame)
-        header.setObjectName("fileHeader")
-
-        list_view = QListView(frame)
-        list_view.setObjectName("fileList")
-
-        model = QStandardItemModel(list_view)
-        for i in range(1, 21):
-            item = QStandardItem(f"IMG_{i:04d}.jpg")
-            model.appendRow(item)
-        list_view.setModel(model)
-
-        layout.addWidget(header)
-        layout.addWidget(list_view)
-
-        return frame
+        self._thumbnail_grid = ThumbnailGridWidget(
+            self._thumbnail_service,
+            parent=self,
+        )
+        self._thumbnail_grid.load_folder(self._folder_root_path)
+        return self._thumbnail_grid
 
     def _create_preview_pane(self) -> QWidget:
         """
@@ -276,3 +271,24 @@ class MainWindow(QMainWindow):
         layout.addWidget(placeholder)
 
         return frame
+
+    # --- File list behaviour ----------------------------------------------
+
+    def _on_folder_selected(self, current, _previous) -> None:
+        """
+        Slot called when the selection in the folder tree changes.
+
+        It resolves the selected item's path and reloads the file list
+        pane with the contents of that directory.
+        """
+        item = self._folder_model.itemFromIndex(current)
+        if item is None:
+            return
+
+        path_str = item.data(Qt.ItemDataRole.UserRole)
+        if not path_str:
+            return
+
+        folder_path = Path(path_str)
+        if self._thumbnail_grid is not None:
+            self._thumbnail_grid.load_folder(folder_path)
