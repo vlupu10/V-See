@@ -82,18 +82,15 @@ class ThumbnailGridWidget(QFrame):
         list_view = QListView(self)
         list_view.setObjectName("fileList")
 
-        # Configure as a grid of uniformly-sized thumbnail tiles.
+        # Configure as a grid of thumbnails. We rely on Qt's built-in
+        # size calculations based on iconSize and text instead of a
+        # fixed gridSize to avoid the \"first load\" truncation issue.
         list_view.setViewMode(QListView.ViewMode.IconMode)
         list_view.setWrapping(True)
         list_view.setMovement(QListView.Movement.Static)
         list_view.setResizeMode(QListView.ResizeMode.Adjust)
-        list_view.setUniformItemSizes(True)
 
-        icon_size = QSize(128, 128)
-        list_view.setIconSize(icon_size)
-        # Grid cell slightly larger than icon to account for frame + text.
-        list_view.setGridSize(QSize(icon_size.width() + 24, icon_size.height() + 40))
-
+        list_view.setIconSize(QSize(128, 128))
         list_view.setSpacing(8)
         list_view.setModel(self._model)
 
