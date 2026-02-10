@@ -124,7 +124,7 @@ class ImageViewerWindow(QMainWindow):
         self._btn_fullscreen = QPushButton("Full Screen", central)
         self._btn_fullscreen.clicked.connect(self._toggle_fullscreen)
 
-        fullscreen_hint = QLabel("F11 full screen on/off, Esc to exit", central)
+        fullscreen_hint = QLabel("Esc to exit full screen", central)
         fullscreen_hint.setStyleSheet("color: gray; font-size: 11px;")
 
         controls_layout.addWidget(self._btn_prev)
@@ -135,12 +135,6 @@ class ImageViewerWindow(QMainWindow):
         controls_layout.addWidget(self._btn_fullscreen)
         controls_layout.addWidget(fullscreen_hint)
         controls_layout.addStretch(1)
-
-        # Toggle full screen with platform standard key (e.g. F11 on Windows/Linux).
-        fullscreen_shortcut = QShortcut(
-            QKeySequence(QKeySequence.StandardKey.FullScreen), self
-        )
-        fullscreen_shortcut.activated.connect(self._toggle_fullscreen)
 
         # Escape exits full screen only (does not close the window).
         esc_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
