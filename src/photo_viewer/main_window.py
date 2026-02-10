@@ -16,7 +16,7 @@ Date: 2025-02-10
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QStandardItem, QStandardItemModel
+from PyQt6.QtGui import QPixmap, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from photo_viewer.components.image_viewer_window import ImageViewerWindow
 from photo_viewer.components.thumbnail_grid import ThumbnailGridWidget
 from photo_viewer.services.thumbnails import ThumbnailService
 
@@ -58,6 +59,9 @@ class MainWindow(QMainWindow):
         self._thumbnail_service = ThumbnailService(parent=self)
         # Center pane: thumbnail grid component (created in _create_right_pane).
         self._thumbnail_grid: ThumbnailGridWidget | None = None
+
+        # Preview pane widgets (created in _create_preview_pane).
+        self._preview_image_label: QLabel | None = None
 
         self._init_ui()
 
@@ -236,16 +240,18 @@ class MainWindow(QMainWindow):
             self._thumbnail_service,
             parent=self,
         )
-        self._thumbnail_grid.load_folder(self._folder_root_path)
+        # React to selection changes in the grid to update the preview pane.
+        self._thumbnail_grid.selection_changed.connect(self._on_thumbnail_selected)
+        # React to double-click activation to open the external viewer.
+        self._thumbnail_grid.activated.connect(self._on_thumbnail_activated)
         return self._thumbnail_grid
 
     def _create_preview_pane(self) -> QWidget:
         """
-        Create the preview / metadata pane (placeholder).
+        Create the preview / metadata pane.
 
-        A simple frame with a header and explanatory label. Later this will
-        show a larger preview of the selected file and basic EXIF data
-        (camera, ISO, shutter speed, date taken).
+        Currently shows a scaled preview of the selected image; EXIF and
+        other metadata will be added underneath in a later iteration.
         """
         frame = QFrame(self)
         frame.setFrameShape(QFrame.Shape.StyledPanel)
@@ -257,18 +263,18 @@ class MainWindow(QMainWindow):
         header = QLabel("Preview / Metadata", frame)
         header.setObjectName("previewHeader")
 
-        placeholder = QLabel(
-            "Preview of selected file will appear here.\n"
-            "EXIF data (camera, ISO, shutter speed, date taken) will be shown below.",
-            frame,
+        image_label = QLabel(frame)
+        image_label.setObjectName("previewImage")
+        image_label.setAlignment(
+            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
         )
-        placeholder.setAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
-        )
-        placeholder.setWordWrap(True)
+        image_label.setMinimumHeight(200)
+        image_label.setText("No image selected.")
+
+        self._preview_image_label = image_label
 
         layout.addWidget(header)
-        layout.addWidget(placeholder)
+        layout.addWidget(image_label)
 
         return frame
 
@@ -292,3 +298,54 @@ class MainWindow(QMainWindow):
         folder_path = Path(path_str)
         if self._thumbnail_grid is not None:
             self._thumbnail_grid.load_folder(folder_path)
+
+    def _on_thumbnail_selected(self, path_str: str) -> None:
+        """
+        Slot called when the user selects a thumbnail in the center pane.
+
+        Loads the corresponding image and displays a scaled preview in
+        the preview pane.
+        """
+        if not path_str:
+            return
+        self._update_preview(Path(path_str))
+
+    def _on_thumbnail_activated(self, paths: list[str], index: int) -> None:
+        """
+        Slot called when the user double-clicks a thumbnail in the grid.
+
+        Opens a separate viewer window that can navigate within the list
+        using Next/Previous controls and an optional slideshow.
+        """
+        image_paths = [Path(p) for p in paths]
+        viewer = ImageViewerWindow(image_paths, start_index=index, parent=self)
+        viewer.show()
+
+    def _update_preview(self, image_path: Path) -> None:
+        """Load the given image path into the preview label."""
+        if self._preview_image_label is None:
+            return
+
+        if not image_path.is_file():
+            self._preview_image_label.setText("Selected item is not a file.")
+            self._preview_image_label.setPixmap(QPixmap())
+            return
+
+        pixmap = QPixmap(str(image_path))
+        if pixmap.isNull():
+            self._preview_image_label.setText("Cannot load image.")
+            self._preview_image_label.setPixmap(QPixmap())
+            return
+
+        # Scale to fit the label while preserving aspect ratio.
+        target_size = self._preview_image_label.size()
+        if target_size.width() <= 0 or target_size.height() <= 0:
+            target_size = pixmap.size()
+
+        scaled = pixmap.scaled(
+            target_size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._preview_image_label.setPixmap(scaled)
+        self._preview_image_label.setText("")

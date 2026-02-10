@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QIcon, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QFrame,
@@ -41,6 +41,13 @@ class ThumbnailGridWidget(QFrame):
     and thumbnails fill in as they are generated.
     """
 
+    # Emitted when the current selection changes to a specific file path.
+    selection_changed = pyqtSignal(str)
+    # Emitted when the user activates (double-clicks) a thumbnail.
+    # Carries the full ordered list of paths in the current folder and the
+    # index of the activated item so a viewer window can navigate.
+    activated = pyqtSignal(list, int)
+
     def __init__(
         self,
         thumbnail_service: ThumbnailService,
@@ -64,6 +71,7 @@ class ThumbnailGridWidget(QFrame):
         self._thumbnail_service = thumbnail_service
         self._model = QStandardItemModel(self)
         self._file_items_by_path: dict[str, QStandardItem] = {}
+        self._current_paths: list[str] = []
         self._list_view: QListView | None = None
 
         self._build_ui()
@@ -85,6 +93,7 @@ class ThumbnailGridWidget(QFrame):
         # Configure as a grid of thumbnails. We rely on Qt's built-in
         # size calculations based on iconSize and text instead of a
         # fixed gridSize to avoid the \"first load\" truncation issue.
+        list_view.setEditTriggers(QListView.EditTrigger.NoEditTriggers)
         list_view.setViewMode(QListView.ViewMode.IconMode)
         list_view.setWrapping(True)
         list_view.setMovement(QListView.Movement.Static)
@@ -95,6 +104,12 @@ class ThumbnailGridWidget(QFrame):
         list_view.setModel(self._model)
 
         self._list_view = list_view
+
+        # Propagate selection changes to listeners as file paths.
+        selection_model = list_view.selectionModel()
+        if selection_model is not None:
+            selection_model.currentChanged.connect(self._on_current_changed)
+            list_view.doubleClicked.connect(self._on_double_clicked)
 
         layout.addWidget(header)
         layout.addWidget(list_view)
@@ -110,6 +125,7 @@ class ThumbnailGridWidget(QFrame):
         """
         self._model.removeRows(0, self._model.rowCount())
         self._file_items_by_path.clear()
+        self._current_paths.clear()
 
         if not folder_path.is_dir():
             return
@@ -133,6 +149,14 @@ class ThumbnailGridWidget(QFrame):
             self._file_items_by_path[path_str] = item
             self._thumbnail_service.request_thumbnail(path)
 
+            self._current_paths.append(path_str)
+
+        # Auto-select the first item (if any) so that callers can show a
+        # preview immediately when a folder is loaded.
+        if self._list_view is not None and self._model.rowCount() > 0:
+            index0 = self._model.index(0, 0)
+            self._list_view.setCurrentIndex(index0)
+
     def _on_thumbnail_ready(self, path_str: str, icon: QIcon) -> None:
         """
         Slot called when the ThumbnailService has produced a thumbnail.
@@ -143,4 +167,36 @@ class ThumbnailGridWidget(QFrame):
         item = self._file_items_by_path.get(path_str)
         if item is None:
             return
+
         item.setIcon(icon)
+
+        # Force the view to recompute item geometry now that real icons
+        # are available. Without this, the first load can display icons
+        # in rows that were initially laid out assuming text-only items,
+        # causing visible overlap until the folder is reloaded.
+        if self._list_view is not None:
+            self._list_view.doItemsLayout()
+
+    def _on_current_changed(self, current, _previous) -> None:
+        """Emit selection_changed with the newly selected file path."""
+        item = self._model.itemFromIndex(current)
+        if item is None:
+            return
+        path_str = item.data(Qt.ItemDataRole.UserRole)
+        if not path_str:
+            return
+        self.selection_changed.emit(str(path_str))
+
+    def _on_double_clicked(self, index) -> None:
+        """
+        Emit activated with the full set of paths and the clicked index.
+
+        The receiver (e.g. MainWindow) can then create a viewer window
+        that knows how to navigate within the folder.
+        """
+        if not self._current_paths:
+            return
+        row = index.row()
+        if row < 0 or row >= len(self._current_paths):
+            return
+        self.activated.emit(list(self._current_paths), row)

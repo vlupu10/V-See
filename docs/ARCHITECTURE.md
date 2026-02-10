@@ -34,7 +34,9 @@ When the app launches, the main window shows **Manage** mode with a resizable th
   - Thumbnails are generated **asynchronously** by `ThumbnailService`; icons appear as they complete. Each thumbnail is drawn with a light frame for separation.
 
 - **Right/bottom pane — Preview / Metadata**
-  - Placeholder for a larger preview of the selected file and basic EXIF data (camera, ISO, date taken). Not yet implemented.
+  - Implemented preview of the **currently selected thumbnail**.
+  - When a folder is loaded, the first thumbnail is auto-selected; selecting a different thumbnail updates the preview.
+  - The preview pane currently shows a scaled version of the image; EXIF and additional metadata will be added beneath it in a later iteration.
 
 ---
 
@@ -74,7 +76,8 @@ Application-wide settings and path constants (e.g. project root, `docs/`, `tmp/`
 
 - Builds the **folder tree** (left) with a lazy `QStandardItemModel` and connects selection changes to the center pane.
 - Creates a **ThumbnailService** instance and a **ThumbnailGridWidget** (center), passing the service into the component. On folder selection, it calls `thumbnail_grid.load_folder(folder_path)`.
-- Builds the **preview pane** (bottom-right) as a placeholder.
+- Connects `ThumbnailGridWidget.selection_changed` to a preview-update slot so that selecting a thumbnail (or auto-selecting the first one on folder load) updates the preview pane.
+- Builds the **preview pane** (bottom-right) with a `QLabel` that displays a scaled image preview for the currently selected file. EXIF/metadata display is still to be added.
 
 No file-list or thumbnail logic remains inside MainWindow; the center pane is fully owned by the ThumbnailGridWidget component.
 

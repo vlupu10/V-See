@@ -11,5 +11,6 @@ Date: 2025-02-10
 """
 
 from photo_viewer.components.thumbnail_grid import ThumbnailGridWidget
+from photo_viewer.components.image_viewer_window import ImageViewerWindow
 
-__all__ = ["ThumbnailGridWidget"]
+__all__ = ["ThumbnailGridWidget", "ImageViewerWindow"]
