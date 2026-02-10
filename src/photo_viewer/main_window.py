@@ -1,23 +1,26 @@
 """
-Main application window for PhotoView Desktop.
+Main application window for V-See.
 
 Defines the primary window shown at startup, implementing the Manage-mode
 three-pane layout (folder tree, file list/thumbnails, preview/metadata).
 All panes are built via private helpers and wired with QSplitters for
-resizable layout. Uses dummy data for the tree and file list until
-real filesystem and thumbnail services are integrated.
+resizable layout. The folder tree mirrors the real filesystem (rooted at
+the user's home directory) and is populated lazily as folders are expanded.
+The center pane uses the ThumbnailGridWidget component; the preview pane
+is still a placeholder.
 
-Author: Photo Viewer Project
+Author: Viorel LUPU
 Date: 2025-02-10
 """
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QStandardItem, QStandardItemModel
+from pathlib import Path
+
+from PyQt6.QtCore import QByteArray, QEvent, Qt
+from PyQt6.QtGui import QPixmap, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QListView,
     QMainWindow,
     QSplitter,
     QTreeView,
@@ -25,22 +28,49 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from photo_viewer.components.image_viewer_window import ImageViewerWindow
+from photo_viewer.components.thumbnail_grid import ThumbnailGridWidget
+from photo_viewer.services.persistence import (
+    get_last_folder,
+    get_main_window_geometry,
+    set_last_folder,
+    set_main_window_geometry,
+)
+from photo_viewer.services.thumbnails import ThumbnailService
+
 
 class MainWindow(QMainWindow):
     """
     Main application window.
 
     Starts in "Manage" mode with an ACDSee-style three-pane layout:
-    - Left:   Folder tree (dummy data for now; will become filesystem tree)
-    - Center: File list / thumbnail area (placeholder; will support grid and details view)
+    - Left:   Folder tree rooted at the user's home directory
+    - Center: ThumbnailGridWidget component (grid of thumbnails with async loading)
     - Bottom-right: Preview / metadata pane (placeholder; will show selected image and EXIF)
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Build the window and initialise the three-pane UI."""
         super().__init__(parent)
-        self.setWindowTitle("PhotoView Desktop – Manage")
+        self.setWindowTitle("V-See – Manage")
         self.resize(1400, 900)
+
+        # Root for the folder browser: current user's home directory.
+        # This gives quick access to common locations (Desktop, Documents, Pictures, etc.)
+        self._folder_root_path = Path.home()
+        self._folder_root_item: QStandardItem | None = None
+        self._folder_model = self._build_folder_model()
+
+        # Thumbnail service for the center pane; decoding runs on background threads.
+        self._thumbnail_service = ThumbnailService(parent=self)
+        # Center pane: thumbnail grid component (created in _create_right_pane).
+        self._thumbnail_grid: ThumbnailGridWidget | None = None
+
+        # Preview pane widgets (created in _create_preview_pane).
+        self._preview_image_label: QLabel | None = None
+        self._preview_image_path: Path | None = None  # current image path, for resize re-scale
+        # Folder tree view reference so we can expand/select by path on restore.
+        self._folder_tree_view: QTreeView | None = None
 
         self._init_ui()
 
@@ -67,14 +97,26 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(outer_splitter)
 
+        # Restore last main window size/position if stored.
+        geo = get_main_window_geometry()
+        if geo:
+            ba = QByteArray.fromBase64(geo.encode("ascii"))
+            if not ba.isEmpty():
+                self.restoreGeometry(ba)
+
+        # Restore last visited folder from persistence, or select home.
+        self._restore_last_folder()
+
     # --- Folder tree pane ------------------------------------------------
 
     def _create_folder_pane(self) -> QWidget:
         """
         Create the left pane: a labelled "Folders" header and a tree view.
 
-        The tree uses a dummy model for now to validate layout and splitter
-        behaviour; it will be replaced by a lazily-loaded filesystem model.
+        The tree is backed by a QStandardItemModel that mirrors the real
+        filesystem starting from the user's home directory. Child directories
+        for a node are only populated when that node is expanded, avoiding
+        heavy upfront scanning.
         """
         container = QWidget(self)
         layout = QVBoxLayout(container)
@@ -88,48 +130,158 @@ class MainWindow(QMainWindow):
         tree_view = QTreeView(container)
         tree_view.setObjectName("folderTree")
         tree_view.setHeaderHidden(True)
+        tree_view.setUniformRowHeights(True)
+        self._folder_tree_view = tree_view
 
-        model = self._create_dummy_folder_model(tree_view)
-        tree_view.setModel(model)
-        tree_view.expandAll()
+        tree_view.setModel(self._folder_model)
+
+        # Expand the home directory node by default to mimic typical
+        # file browsers and to give immediate context.
+        if self._folder_root_item is not None:
+            root_index = self._folder_model.indexFromItem(self._folder_root_item)
+            tree_view.expand(root_index)
+
+        # When a folder is expanded, lazily populate its child directories.
+        tree_view.expanded.connect(self._on_folder_expanded)
+
+        # When the current folder selection changes, update the file list pane.
+        selection_model = tree_view.selectionModel()
+        if selection_model is not None:
+            selection_model.currentChanged.connect(self._on_folder_selected)
 
         layout.addWidget(header)
         layout.addWidget(tree_view)
 
         return container
 
-    def _create_dummy_folder_model(self, parent: QWidget) -> QStandardItemModel:
+    def _build_folder_model(self) -> QStandardItemModel:
         """
-        Build a dummy hierarchical model for the folder tree.
+        Create a model containing a single top-level node for the user's
+        home directory. Each node initially has a placeholder child so it
+        can be expanded; real children are populated on demand.
+        """
+        model = QStandardItemModel(self)
+        model.setHorizontalHeaderLabels(["Folders"])
 
-        Used only to validate the layout. Provides a small tree (Pictures,
-        Camera Roll, Downloads) with nested items. Will be replaced by
-        QFileSystemModel (or similar) for lazy, on-expand directory loading.
-        """
-        model = QStandardItemModel(parent)
         root_item = model.invisibleRootItem()
 
-        pictures = QStandardItem("Pictures")
-        camera = QStandardItem("Camera Roll")
-        downloads = QStandardItem("Downloads")
+        home_path = self._folder_root_path
+        home_display = home_path.name or str(home_path)
 
-        holidays = QStandardItem("2024-Holidays")
-        city = QStandardItem("City")
-        mountains = QStandardItem("Mountains")
-        holidays.appendRow(city)
-        holidays.appendRow(mountains)
-        pictures.appendRow(holidays)
+        home_item = QStandardItem(home_display)
+        home_item.setData(str(home_path), Qt.ItemDataRole.UserRole)
 
-        raw = QStandardItem("RAW")
-        jpeg = QStandardItem("JPEG")
-        camera.appendRow(raw)
-        camera.appendRow(jpeg)
+        # Add a dummy child so the view shows an expand arrow; real
+        # children are inserted when the node is expanded.
+        home_item.appendRow(QStandardItem("…"))
 
-        root_item.appendRow(pictures)
-        root_item.appendRow(camera)
-        root_item.appendRow(downloads)
+        root_item.appendRow(home_item)
+        self._folder_root_item = home_item
 
         return model
+
+    def _on_folder_expanded(self, index) -> None:
+        """
+        Slot called when a folder node is expanded. Ensures that the
+        node's child directories are populated at this moment.
+        """
+        item = self._folder_model.itemFromIndex(index)
+        if item is None:
+            return
+        self._ensure_folder_children_loaded(item)
+
+    def _ensure_folder_children_loaded(self, item: QStandardItem) -> None:
+        """
+        Populate the given item's child directories if they have not
+        been loaded yet (lazy loading).
+        """
+        # If the only child has no path data, treat it as a placeholder
+        # and replace it with real children.
+        if item.rowCount() == 1 and not item.child(0).data(Qt.ItemDataRole.UserRole):
+            item.removeRows(0, item.rowCount())
+
+            dir_path = Path(item.data(Qt.ItemDataRole.UserRole))
+            if not dir_path.is_dir():
+                return
+
+            try:
+                children = sorted(
+                    [p for p in dir_path.iterdir() if p.is_dir()],
+                    key=lambda p: p.name.lower(),
+                )
+            except PermissionError:
+                # Skip directories we cannot read.
+                return
+
+            for child_path in children:
+                child_item = QStandardItem(child_path.name)
+                child_item.setData(str(child_path), Qt.ItemDataRole.UserRole)
+                # Add placeholder so this directory can be expanded later.
+                child_item.appendRow(QStandardItem("…"))
+                item.appendRow(child_item)
+
+    def _restore_last_folder(self) -> None:
+        """
+        Restore the last visited folder from persistence and select it,
+        so the thumbnail grid loads that folder. If none or invalid, select home.
+        """
+        last = get_last_folder()
+        if last and Path(last).is_dir():
+            self._expand_and_select_path(Path(last))
+        else:
+            self._expand_and_select_path(self._folder_root_path)
+
+    def _expand_and_select_path(self, path: Path) -> None:
+        """
+        Expand the folder tree along the given path and select the final node.
+
+        Used on startup to open the last folder, or to fall back to home.
+        The tree is lazy so we expand each segment and find the matching child.
+        """
+        if self._folder_tree_view is None or self._folder_root_item is None:
+            return
+
+        path = path.resolve()
+        home = self._folder_root_path.resolve()
+
+        if path == home:
+            root_index = self._folder_model.indexFromItem(self._folder_root_item)
+            self._folder_tree_view.expand(root_index)
+            self._folder_tree_view.setCurrentIndex(root_index)
+            return
+
+        try:
+            relative = path.relative_to(home)
+        except ValueError:
+            # Path not under home (e.g. different drive); select home.
+            root_index = self._folder_model.indexFromItem(self._folder_root_item)
+            self._folder_tree_view.expand(root_index)
+            self._folder_tree_view.setCurrentIndex(root_index)
+            return
+
+        parts = relative.parts
+        current_item = self._folder_root_item
+        current_path = home
+
+        for part in parts:
+            current_path = current_path / part
+            # Ensure children are loaded so we can find the next segment.
+            self._ensure_folder_children_loaded(current_item)
+            index = self._folder_model.indexFromItem(current_item)
+            self._folder_tree_view.expand(index)
+
+            found = None
+            for row in range(current_item.rowCount()):
+                child = current_item.child(row)
+                if child.data(Qt.ItemDataRole.UserRole) == str(current_path):
+                    found = child
+                    break
+            if found is None:
+                break
+            current_item = found
+
+        target_index = self._folder_model.indexFromItem(current_item)
+        self._folder_tree_view.setCurrentIndex(target_index)
 
     # --- Right side: file list + preview --------------------------------
 
@@ -148,7 +300,7 @@ class MainWindow(QMainWindow):
 
         vertical_splitter = QSplitter(Qt.Orientation.Vertical, container)
 
-        file_list_pane = self._create_file_list_pane()
+        file_list_pane = self._create_thumbnail_grid_pane()
         preview_pane = self._create_preview_pane()
 
         vertical_splitter.addWidget(file_list_pane)
@@ -160,45 +312,29 @@ class MainWindow(QMainWindow):
         layout.addWidget(vertical_splitter)
         return container
 
-    def _create_file_list_pane(self) -> QWidget:
+    def _create_thumbnail_grid_pane(self) -> QWidget:
         """
-        Create the central file list / thumbnail pane (placeholder).
+        Create the central pane using the ThumbnailGridWidget component.
 
-        Currently a QListView with dummy image filenames (IMG_0001.jpg …)
-        to confirm sizing and scroll behaviour. Will be replaced by a
-        virtualised thumbnail grid and/or details list with async loading.
+        The component owns the list model, path-to-item mapping, and
+        thumbnail updates; we only pass the folder path when selection changes.
         """
-        frame = QFrame(self)
-        frame.setFrameShape(QFrame.Shape.StyledPanel)
-
-        layout = QVBoxLayout(frame)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(4)
-
-        header = QLabel("Files (Thumbnails / Details view placeholder)", frame)
-        header.setObjectName("fileHeader")
-
-        list_view = QListView(frame)
-        list_view.setObjectName("fileList")
-
-        model = QStandardItemModel(list_view)
-        for i in range(1, 21):
-            item = QStandardItem(f"IMG_{i:04d}.jpg")
-            model.appendRow(item)
-        list_view.setModel(model)
-
-        layout.addWidget(header)
-        layout.addWidget(list_view)
-
-        return frame
+        self._thumbnail_grid = ThumbnailGridWidget(
+            self._thumbnail_service,
+            parent=self,
+        )
+        # React to selection changes in the grid to update the preview pane.
+        self._thumbnail_grid.selection_changed.connect(self._on_thumbnail_selected)
+        # React to double-click activation to open the external viewer.
+        self._thumbnail_grid.activated.connect(self._on_thumbnail_activated)
+        return self._thumbnail_grid
 
     def _create_preview_pane(self) -> QWidget:
         """
-        Create the preview / metadata pane (placeholder).
+        Create the preview / metadata pane.
 
-        A simple frame with a header and explanatory label. Later this will
-        show a larger preview of the selected file and basic EXIF data
-        (camera, ISO, shutter speed, date taken).
+        Currently shows a scaled preview of the selected image; EXIF and
+        other metadata will be added underneath in a later iteration.
         """
         frame = QFrame(self)
         frame.setFrameShape(QFrame.Shape.StyledPanel)
@@ -210,17 +346,114 @@ class MainWindow(QMainWindow):
         header = QLabel("Preview / Metadata", frame)
         header.setObjectName("previewHeader")
 
-        placeholder = QLabel(
-            "Preview of selected file will appear here.\n"
-            "EXIF data (camera, ISO, shutter speed, date taken) will be shown below.",
-            frame,
+        image_label = QLabel(frame)
+        image_label.setObjectName("previewImage")
+        image_label.setAlignment(
+            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
         )
-        placeholder.setAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
-        )
-        placeholder.setWordWrap(True)
+        image_label.setMinimumHeight(200)
+        image_label.setText("No image selected.")
+        image_label.installEventFilter(self)  # re-scale image when pane is resized (e.g. splitter)
+
+        self._preview_image_label = image_label
 
         layout.addWidget(header)
-        layout.addWidget(placeholder)
+        layout.addWidget(image_label)
 
         return frame
+
+    # --- File list behaviour ----------------------------------------------
+
+    def _on_folder_selected(self, current, _previous) -> None:
+        """
+        Slot called when the selection in the folder tree changes.
+
+        It resolves the selected item's path and reloads the file list
+        pane with the contents of that directory.
+        """
+        item = self._folder_model.itemFromIndex(current)
+        if item is None:
+            return
+
+        path_str = item.data(Qt.ItemDataRole.UserRole)
+        if not path_str:
+            return
+
+        folder_path = Path(path_str)
+        set_last_folder(path_str)
+        if self._thumbnail_grid is not None:
+            self._thumbnail_grid.load_folder(folder_path)
+
+    def _on_thumbnail_selected(self, path_str: str) -> None:
+        """
+        Slot called when the user selects a thumbnail in the center pane.
+
+        Loads the corresponding image and displays a scaled preview in
+        the preview pane.
+        """
+        if not path_str:
+            return
+        self._update_preview(Path(path_str))
+
+    def _on_thumbnail_activated(self, paths: list[str], index: int) -> None:
+        """
+        Slot called when the user double-clicks a thumbnail in the grid.
+
+        Opens a separate viewer window that can navigate within the list
+        using Next/Previous controls and an optional slideshow.
+        """
+        image_paths = [Path(p) for p in paths]
+        viewer = ImageViewerWindow(image_paths, start_index=index, parent=self)
+        viewer.show()
+
+    def _update_preview(self, image_path: Path | None) -> None:
+        """Load the given image path into the preview label, scaled to fit available space."""
+        if self._preview_image_label is None:
+            return
+
+        if image_path is None or not image_path.is_file():
+            self._preview_image_path = None
+            self._preview_image_label.setText(
+                "No image selected." if image_path is None else "Selected item is not a file."
+            )
+            self._preview_image_label.setPixmap(QPixmap())
+            return
+
+        pixmap = QPixmap(str(image_path))
+        if pixmap.isNull():
+            self._preview_image_path = None
+            self._preview_image_label.setText("Cannot load image.")
+            self._preview_image_label.setPixmap(QPixmap())
+            return
+
+        self._preview_image_path = image_path
+
+        # Scale to fit the label while preserving aspect ratio (uses current widget size).
+        target_size = self._preview_image_label.size()
+        if target_size.width() <= 0 or target_size.height() <= 0:
+            target_size = pixmap.size()
+
+        scaled = pixmap.scaled(
+            target_size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._preview_image_label.setPixmap(scaled)
+        self._preview_image_label.setText("")
+
+    def eventFilter(self, watched: QWidget, event: QEvent) -> bool:
+        """Re-scale the preview image when the preview pane is resized (e.g. splitter moved)."""
+        if (
+            event.type() == QEvent.Type.Resize
+            and watched is self._preview_image_label
+            and self._preview_image_path is not None
+        ):
+            self._update_preview(self._preview_image_path)
+        return super().eventFilter(watched, event)
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        """Persist main window geometry when the window is closed."""
+        geo = self.saveGeometry()
+        if not geo.isEmpty():
+            set_main_window_geometry(geo.toBase64().data().decode("ascii"))
+        super().closeEvent(event)

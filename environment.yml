@@ -1,0 +1,14 @@
+# Conda environment for V-See photo viewer.
+# Create: conda env create -f environment.yml
+# Activate: conda activate v-see
+# Then run: ./run.sh
+
+name: v-see
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.9
+  - pip
+  - pillow>=10,<11
+  - pip:
+    - "PyQt6>=6.7,<7"

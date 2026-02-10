@@ -6,7 +6,7 @@ so that components and services can resolve paths without hardcoding
 the repository layout. Over time this module can grow to include
 thumbnail sizes, worker limits, and cache locations.
 
-Author: Photo Viewer Project
+Author: Viorel LUPU
 Date: 2025-02-10
 """
 
