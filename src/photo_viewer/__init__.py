@@ -6,6 +6,6 @@ Provides the main application code organised into:
 - services:   filesystem access, thumbnailing, metadata, background workers
 - config:     application configuration and constants
 
-Author: Photo Viewer Project
+Author: Viorel LUPU
 Date: 2025-02-10
 """

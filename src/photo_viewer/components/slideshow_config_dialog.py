@@ -6,7 +6,7 @@ interval in seconds (1–3600). More options (loop, shuffle, etc.)
 can be added later. Uses QSpinBox for numeric input (similar to
 HTML <input type="number"> with min/max/step).
 
-Author: Photo Viewer Project
+Author: Viorel LUPU
 Date: 2025-02-10
 """
 

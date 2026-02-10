@@ -9,7 +9,7 @@ the user's home directory) and is populated lazily as folders are expanded.
 The center pane uses the ThumbnailGridWidget component; the preview pane
 is still a placeholder.
 
-Author: Photo Viewer Project
+Author: Viorel LUPU
 Date: 2025-02-10
 """
 

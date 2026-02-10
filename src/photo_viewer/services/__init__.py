@@ -6,6 +6,6 @@ This package will host backend logic that must stay off the GUI thread:
 - Thumbnail generation on worker threads and optional disk cache
 - Metadata/EXIF extraction for display in the preview pane
 
-Author: Photo Viewer Project
+Author: Viorel LUPU
 Date: 2025-02-10
 """

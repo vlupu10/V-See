@@ -5,7 +5,7 @@ Stores application state (e.g. last visited folder path) so that on the next
 launch the app can open the same folder. Uses the standard library sqlite3
 module; the database file is created in a user config directory.
 
-Author: Photo Viewer Project
+Author: Viorel LUPU
 Date: 2025-02-10
 """
 

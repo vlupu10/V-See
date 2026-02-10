@@ -1,5 +1,5 @@
 <!-- Purpose: High-level architecture documentation for V-See. -->
-<!-- Author: Photo Viewer Project | Date: 2025-02-10 -->
+<!-- Author: Viorel LUPU | Date: 2025-02-10 -->
 
 ## Architecture Overview
 

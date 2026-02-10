@@ -5,7 +5,7 @@ Shows a single image at a time with Next / Previous navigation that
 wraps around within the current folder. Intended to be opened when the
 user double-clicks a thumbnail in the Manage mode grid.
 
-Author: Photo Viewer Project
+Author: Viorel LUPU
 Date: 2025-02-10
 """
 

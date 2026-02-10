@@ -4,7 +4,7 @@ Application entry point for PhotoView Desktop.
 Runs the PyQt6 application and shows the main window in Manage mode.
 Ensures the src/ package root is on sys.path before importing the app.
 
-Author: Photo Viewer Project
+Author: Viorel LUPU
 Date: 2025-02-10
 """
 

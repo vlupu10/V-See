@@ -6,7 +6,7 @@ threads so that the Qt GUI thread remains responsive even when browsing
 large folders. Loaded thumbnails are cached in memory and emitted back to
 the UI via a Qt signal.
 
-Author: Photo Viewer Project
+Author: Viorel LUPU
 Date: 2025-02-10
 """
 

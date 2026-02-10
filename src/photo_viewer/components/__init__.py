@@ -6,7 +6,7 @@ This package hosts reusable widgets and views for:
 - View mode: image canvas, zoom/pan controls
 - Slideshow: configuration dialogs and playback UI
 
-Author: Photo Viewer Project
+Author: Viorel LUPU
 Date: 2025-02-10
 """
 

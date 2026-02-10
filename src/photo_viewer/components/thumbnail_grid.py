@@ -6,7 +6,7 @@ Uses a ThumbnailService for asynchronous thumbnail generation; each item
 shows a framed thumbnail and filename. Designed to be embedded in the
 Manage-mode center pane.
 
-Author: Photo Viewer Project
+Author: Viorel LUPU
 Date: 2025-02-10
 """
 
