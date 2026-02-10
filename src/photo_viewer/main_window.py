@@ -1,15 +1,18 @@
 """
-Main application window for PhotoView Desktop.
+Main application window for V-See.
 
 Defines the primary window shown at startup, implementing the Manage-mode
 three-pane layout (folder tree, file list/thumbnails, preview/metadata).
 All panes are built via private helpers and wired with QSplitters for
-resizable layout. Uses dummy data for the tree and file list until
-real filesystem and thumbnail services are integrated.
+resizable layout. The folder tree mirrors the real filesystem (rooted at
+the user's home directory) and is populated lazily as folders are expanded.
+The file list and preview panes still use placeholder content for now.
 
 Author: Photo Viewer Project
 Date: 2025-02-10
 """
+
+from pathlib import Path
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QStandardItem, QStandardItemModel
@@ -31,7 +34,7 @@ class MainWindow(QMainWindow):
     Main application window.
 
     Starts in "Manage" mode with an ACDSee-style three-pane layout:
-    - Left:   Folder tree (dummy data for now; will become filesystem tree)
+    - Left:   Folder tree rooted at the user's home directory
     - Center: File list / thumbnail area (placeholder; will support grid and details view)
     - Bottom-right: Preview / metadata pane (placeholder; will show selected image and EXIF)
     """
@@ -39,8 +42,14 @@ class MainWindow(QMainWindow):
     def __init__(self, parent: QWidget | None = None) -> None:
         """Build the window and initialise the three-pane UI."""
         super().__init__(parent)
-        self.setWindowTitle("PhotoView Desktop – Manage")
+        self.setWindowTitle("V-See – Manage")
         self.resize(1400, 900)
+
+        # Root for the folder browser: current user's home directory.
+        # This gives quick access to common locations (Desktop, Documents, Pictures, etc.)
+        self._folder_root_path = Path.home()
+        self._folder_root_item: QStandardItem | None = None
+        self._folder_model = self._build_folder_model()
 
         self._init_ui()
 
@@ -73,8 +82,10 @@ class MainWindow(QMainWindow):
         """
         Create the left pane: a labelled "Folders" header and a tree view.
 
-        The tree uses a dummy model for now to validate layout and splitter
-        behaviour; it will be replaced by a lazily-loaded filesystem model.
+        The tree is backed by a QStandardItemModel that mirrors the real
+        filesystem starting from the user's home directory. Child directories
+        for a node are only populated when that node is expanded, avoiding
+        heavy upfront scanning.
         """
         container = QWidget(self)
         layout = QVBoxLayout(container)
@@ -88,48 +99,89 @@ class MainWindow(QMainWindow):
         tree_view = QTreeView(container)
         tree_view.setObjectName("folderTree")
         tree_view.setHeaderHidden(True)
+        tree_view.setUniformRowHeights(True)
 
-        model = self._create_dummy_folder_model(tree_view)
-        tree_view.setModel(model)
-        tree_view.expandAll()
+        tree_view.setModel(self._folder_model)
+
+        # Expand the home directory node by default to mimic typical
+        # file browsers and to give immediate context.
+        if self._folder_root_item is not None:
+            root_index = self._folder_model.indexFromItem(self._folder_root_item)
+            tree_view.expand(root_index)
+
+        # When a folder is expanded, lazily populate its child directories.
+        tree_view.expanded.connect(self._on_folder_expanded)
 
         layout.addWidget(header)
         layout.addWidget(tree_view)
 
         return container
 
-    def _create_dummy_folder_model(self, parent: QWidget) -> QStandardItemModel:
+    def _build_folder_model(self) -> QStandardItemModel:
         """
-        Build a dummy hierarchical model for the folder tree.
+        Create a model containing a single top-level node for the user's
+        home directory. Each node initially has a placeholder child so it
+        can be expanded; real children are populated on demand.
+        """
+        model = QStandardItemModel(self)
+        model.setHorizontalHeaderLabels(["Folders"])
 
-        Used only to validate the layout. Provides a small tree (Pictures,
-        Camera Roll, Downloads) with nested items. Will be replaced by
-        QFileSystemModel (or similar) for lazy, on-expand directory loading.
-        """
-        model = QStandardItemModel(parent)
         root_item = model.invisibleRootItem()
 
-        pictures = QStandardItem("Pictures")
-        camera = QStandardItem("Camera Roll")
-        downloads = QStandardItem("Downloads")
+        home_path = self._folder_root_path
+        home_display = home_path.name or str(home_path)
 
-        holidays = QStandardItem("2024-Holidays")
-        city = QStandardItem("City")
-        mountains = QStandardItem("Mountains")
-        holidays.appendRow(city)
-        holidays.appendRow(mountains)
-        pictures.appendRow(holidays)
+        home_item = QStandardItem(home_display)
+        home_item.setData(str(home_path), Qt.ItemDataRole.UserRole)
 
-        raw = QStandardItem("RAW")
-        jpeg = QStandardItem("JPEG")
-        camera.appendRow(raw)
-        camera.appendRow(jpeg)
+        # Add a dummy child so the view shows an expand arrow; real
+        # children are inserted when the node is expanded.
+        home_item.appendRow(QStandardItem("…"))
 
-        root_item.appendRow(pictures)
-        root_item.appendRow(camera)
-        root_item.appendRow(downloads)
+        root_item.appendRow(home_item)
+        self._folder_root_item = home_item
 
         return model
+
+    def _on_folder_expanded(self, index) -> None:
+        """
+        Slot called when a folder node is expanded. Ensures that the
+        node's child directories are populated at this moment.
+        """
+        item = self._folder_model.itemFromIndex(index)
+        if item is None:
+            return
+        self._ensure_folder_children_loaded(item)
+
+    def _ensure_folder_children_loaded(self, item: QStandardItem) -> None:
+        """
+        Populate the given item's child directories if they have not
+        been loaded yet (lazy loading).
+        """
+        # If the only child has no path data, treat it as a placeholder
+        # and replace it with real children.
+        if item.rowCount() == 1 and not item.child(0).data(Qt.ItemDataRole.UserRole):
+            item.removeRows(0, item.rowCount())
+
+            dir_path = Path(item.data(Qt.ItemDataRole.UserRole))
+            if not dir_path.is_dir():
+                return
+
+            try:
+                children = sorted(
+                    [p for p in dir_path.iterdir() if p.is_dir()],
+                    key=lambda p: p.name.lower(),
+                )
+            except PermissionError:
+                # Skip directories we cannot read.
+                return
+
+            for child_path in children:
+                child_item = QStandardItem(child_path.name)
+                child_item.setData(str(child_path), Qt.ItemDataRole.UserRole)
+                # Add placeholder so this directory can be expanded later.
+                child_item.appendRow(QStandardItem("…"))
+                item.appendRow(child_item)
 
     # --- Right side: file list + preview --------------------------------
 
