@@ -17,6 +17,7 @@ from typing import Sequence
 from PyQt6.QtCore import QByteArray, Qt, QTimer
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
+    QDialog,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -25,6 +26,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from photo_viewer.components.slideshow_config_dialog import SlideshowConfigDialog
 from photo_viewer.services.persistence import (
     get_slideshow_interval_seconds,
     get_viewer_window_geometry,
@@ -114,10 +116,14 @@ class ImageViewerWindow(QMainWindow):
         self._btn_slideshow = QPushButton("Slideshow ON", central)
         self._btn_slideshow.clicked.connect(self._toggle_slideshow)
 
+        btn_config = QPushButton("Configure Slideshow", central)
+        btn_config.clicked.connect(self._open_slideshow_config)
+
         controls_layout.addWidget(self._btn_prev)
         controls_layout.addWidget(self._btn_next)
         controls_layout.addSpacing(16)
         controls_layout.addWidget(self._btn_slideshow)
+        controls_layout.addWidget(btn_config)
         controls_layout.addStretch(1)
 
         # Main image area.
@@ -175,6 +181,17 @@ class ImageViewerWindow(QMainWindow):
     def _on_slideshow_tick(self) -> None:
         """Timer callback: advance to the next image."""
         self.show_next()
+
+    def _open_slideshow_config(self) -> None:
+        """
+        Open the Configure Slideshow dialog. If the user accepts,
+        update our interval and restart the timer if slideshow is running.
+        """
+        dialog = SlideshowConfigDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._slideshow_interval_ms = get_slideshow_interval_seconds() * 1000
+            if self._slideshow_running:
+                self._slideshow_timer.setInterval(self._slideshow_interval_ms)
 
     # --------------------------------------------------------------- image
 

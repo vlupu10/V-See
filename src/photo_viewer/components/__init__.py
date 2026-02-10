@@ -10,7 +10,8 @@ Author: Photo Viewer Project
 Date: 2025-02-10
 """
 
-from photo_viewer.components.thumbnail_grid import ThumbnailGridWidget
 from photo_viewer.components.image_viewer_window import ImageViewerWindow
+from photo_viewer.components.slideshow_config_dialog import SlideshowConfigDialog
+from photo_viewer.components.thumbnail_grid import ThumbnailGridWidget
 
-__all__ = ["ThumbnailGridWidget", "ImageViewerWindow"]
+__all__ = ["ThumbnailGridWidget", "ImageViewerWindow", "SlideshowConfigDialog"]
