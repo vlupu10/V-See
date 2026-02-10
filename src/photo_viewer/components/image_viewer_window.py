@@ -14,16 +14,21 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Sequence
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QByteArray, Qt, QTimer
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QPushButton,
-    QToolBar,
     QVBoxLayout,
     QWidget,
+)
+
+from photo_viewer.services.persistence import (
+    get_slideshow_interval_seconds,
+    get_viewer_window_geometry,
+    set_viewer_window_geometry,
 )
 
 
@@ -63,10 +68,10 @@ class ImageViewerWindow(QMainWindow):
         self._current_index = max(0, min(start_index, len(self._image_paths) - 1))
 
         # Simple slideshow: when active, a timer advances to the next image
-        # every few seconds with wrap-around.
+        # every N seconds (from persistence, default 3) with wrap-around.
         self._slideshow_timer = QTimer(self)
         self._slideshow_timer.timeout.connect(self._on_slideshow_tick)
-        self._slideshow_interval_ms = 3000
+        self._slideshow_interval_ms = get_slideshow_interval_seconds() * 1000
 
         self._slideshow_running = False
 
@@ -75,6 +80,7 @@ class ImageViewerWindow(QMainWindow):
         self._btn_prev: QPushButton
         self._btn_next: QPushButton
         self._btn_slideshow: QPushButton
+        self._current_pixmap: QPixmap | None = None
 
         self._init_ui()
         self._update_image()
@@ -187,18 +193,62 @@ class ImageViewerWindow(QMainWindow):
             self._image_label.setText("Cannot load image.")
             self._image_label.setPixmap(QPixmap())
             self._filename_label.setText(path.name)
+            self._current_pixmap = None
+            return
+
+        self._current_pixmap = pixmap
+        self._apply_scaled_pixmap()
+        self._image_label.setText("")
+        self._filename_label.setText(path.name)
+
+    def _apply_scaled_pixmap(self) -> None:
+        """
+        Scale the current pixmap to fit the label while preserving aspect.
+
+        Called both when a new image is loaded and when the window is resized,
+        so that the image always uses as much space as available.
+        """
+        if self._current_pixmap is None or self._current_pixmap.isNull():
             return
 
         target_size = self._image_label.size()
         if target_size.width() <= 0 or target_size.height() <= 0:
-            target_size = pixmap.size()
+            target_size = self._current_pixmap.size()
 
-        scaled = pixmap.scaled(
+        scaled = self._current_pixmap.scaled(
             target_size,
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
         self._image_label.setPixmap(scaled)
-        self._image_label.setText("")
-        self._filename_label.setText(path.name)
+
+    # ------------------------------------------------------------- Qt hooks
+
+    def showEvent(self, event) -> None:  # type: ignore[override]
+        """
+        After the window is first shown, restore size/position from persistence
+        (if any) and defer scaling so the first image is not displayed tiny.
+        """
+        super().showEvent(event)
+        geo = get_viewer_window_geometry()
+        if geo:
+            ba = QByteArray.fromBase64(geo.encode("ascii"))
+            if not ba.isEmpty():
+                self.restoreGeometry(ba)
+        QTimer.singleShot(0, self._apply_scaled_pixmap)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """
+        When the window is resized, rescale the current image so that it
+        fills the available space instead of staying at its original size.
+        """
+        super().resizeEvent(event)
+        self._apply_scaled_pixmap()
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        """Persist viewer window geometry when the window is closed."""
+        geo = self.saveGeometry()
+        if not geo.isEmpty():
+            set_viewer_window_geometry(geo.toBase64().data().decode("ascii"))
+        super().closeEvent(event)
 

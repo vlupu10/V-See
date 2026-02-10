@@ -15,7 +15,7 @@ Date: 2025-02-10
 
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QByteArray, Qt
 from PyQt6.QtGui import QPixmap, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QFrame,
@@ -30,6 +30,12 @@ from PyQt6.QtWidgets import (
 
 from photo_viewer.components.image_viewer_window import ImageViewerWindow
 from photo_viewer.components.thumbnail_grid import ThumbnailGridWidget
+from photo_viewer.services.persistence import (
+    get_last_folder,
+    get_main_window_geometry,
+    set_last_folder,
+    set_main_window_geometry,
+)
 from photo_viewer.services.thumbnails import ThumbnailService
 
 
@@ -62,6 +68,8 @@ class MainWindow(QMainWindow):
 
         # Preview pane widgets (created in _create_preview_pane).
         self._preview_image_label: QLabel | None = None
+        # Folder tree view reference so we can expand/select by path on restore.
+        self._folder_tree_view: QTreeView | None = None
 
         self._init_ui()
 
@@ -88,6 +96,16 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(outer_splitter)
 
+        # Restore last main window size/position if stored.
+        geo = get_main_window_geometry()
+        if geo:
+            ba = QByteArray.fromBase64(geo.encode("ascii"))
+            if not ba.isEmpty():
+                self.restoreGeometry(ba)
+
+        # Restore last visited folder from persistence, or select home.
+        self._restore_last_folder()
+
     # --- Folder tree pane ------------------------------------------------
 
     def _create_folder_pane(self) -> QWidget:
@@ -112,6 +130,7 @@ class MainWindow(QMainWindow):
         tree_view.setObjectName("folderTree")
         tree_view.setHeaderHidden(True)
         tree_view.setUniformRowHeights(True)
+        self._folder_tree_view = tree_view
 
         tree_view.setModel(self._folder_model)
 
@@ -199,6 +218,69 @@ class MainWindow(QMainWindow):
                 # Add placeholder so this directory can be expanded later.
                 child_item.appendRow(QStandardItem("…"))
                 item.appendRow(child_item)
+
+    def _restore_last_folder(self) -> None:
+        """
+        Restore the last visited folder from persistence and select it,
+        so the thumbnail grid loads that folder. If none or invalid, select home.
+        """
+        last = get_last_folder()
+        if last and Path(last).is_dir():
+            self._expand_and_select_path(Path(last))
+        else:
+            self._expand_and_select_path(self._folder_root_path)
+
+    def _expand_and_select_path(self, path: Path) -> None:
+        """
+        Expand the folder tree along the given path and select the final node.
+
+        Used on startup to open the last folder, or to fall back to home.
+        The tree is lazy so we expand each segment and find the matching child.
+        """
+        if self._folder_tree_view is None or self._folder_root_item is None:
+            return
+
+        path = path.resolve()
+        home = self._folder_root_path.resolve()
+
+        if path == home:
+            root_index = self._folder_model.indexFromItem(self._folder_root_item)
+            self._folder_tree_view.expand(root_index)
+            self._folder_tree_view.setCurrentIndex(root_index)
+            return
+
+        try:
+            relative = path.relative_to(home)
+        except ValueError:
+            # Path not under home (e.g. different drive); select home.
+            root_index = self._folder_model.indexFromItem(self._folder_root_item)
+            self._folder_tree_view.expand(root_index)
+            self._folder_tree_view.setCurrentIndex(root_index)
+            return
+
+        parts = relative.parts
+        current_item = self._folder_root_item
+        current_path = home
+
+        for part in parts:
+            current_path = current_path / part
+            # Ensure children are loaded so we can find the next segment.
+            self._ensure_folder_children_loaded(current_item)
+            index = self._folder_model.indexFromItem(current_item)
+            self._folder_tree_view.expand(index)
+
+            found = None
+            for row in range(current_item.rowCount()):
+                child = current_item.child(row)
+                if child.data(Qt.ItemDataRole.UserRole) == str(current_path):
+                    found = child
+                    break
+            if found is None:
+                break
+            current_item = found
+
+        target_index = self._folder_model.indexFromItem(current_item)
+        self._folder_tree_view.setCurrentIndex(target_index)
 
     # --- Right side: file list + preview --------------------------------
 
@@ -296,6 +378,7 @@ class MainWindow(QMainWindow):
             return
 
         folder_path = Path(path_str)
+        set_last_folder(path_str)
         if self._thumbnail_grid is not None:
             self._thumbnail_grid.load_folder(folder_path)
 
@@ -349,3 +432,10 @@ class MainWindow(QMainWindow):
         )
         self._preview_image_label.setPixmap(scaled)
         self._preview_image_label.setText("")
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        """Persist main window geometry when the window is closed."""
+        geo = self.saveGeometry()
+        if not geo.isEmpty():
+            set_main_window_geometry(geo.toBase64().data().decode("ascii"))
+        super().closeEvent(event)

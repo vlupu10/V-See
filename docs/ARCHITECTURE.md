@@ -61,6 +61,7 @@ Backend logic that must not block the GUI thread. No Qt widgets; they expose sig
 | Service | Purpose |
 |---------|---------|
 | **ThumbnailService** | Generates scaled, framed thumbnails for image files on a thread pool. Caches results in memory and emits `thumbnail_ready(path, QIcon)` so components can update item icons. Used by `ThumbnailGridWidget`. |
+| **Persistence** (`persistence.py`) | Stores application state in SQLite so it survives restarts. Currently stores the **last selected folder** path; on startup the app opens that folder (or falls back to the user’s home). The same store can be extended for other settings (e.g. slideshow interval in seconds, window geometry, recent folders). |
 
 Future services will include: filesystem browser (if the tree is moved out of MainWindow), metadata/EXIF extraction, and pre-fetching for View mode.
 
@@ -79,11 +80,28 @@ Application-wide settings and path constants (e.g. project root, `docs/`, `tmp/`
 - Connects `ThumbnailGridWidget.selection_changed` to a preview-update slot so that selecting a thumbnail (or auto-selecting the first one on folder load) updates the preview pane.
 - Builds the **preview pane** (bottom-right) with a `QLabel` that displays a scaled image preview for the currently selected file. EXIF/metadata display is still to be added.
 
-No file-list or thumbnail logic remains inside MainWindow; the center pane is fully owned by the ThumbnailGridWidget component.
+No file-list or thumbnail logic remains inside MainWindow; the center pane is fully owned by the ThumbnailGridWidget component. On startup, MainWindow calls the persistence service to **restore the last folder**: the tree is expanded to that path and the folder is selected so the thumbnail grid loads it; if no valid path is stored, the user’s home folder is selected.
 
 ---
 
-### 5. Performance Strategies
+### 5. Persistence (SQLite)
+
+Application state is persisted in a **SQLite** database so that preferences and context survive restarts. The implementation uses the Python standard library `sqlite3` (no extra dependency).
+
+- **Location:** `~/.config/v-see/state.db` (directory created automatically).
+- **Schema:** A single table `app_state (key TEXT PRIMARY KEY, value TEXT)` used as a key–value store.
+- **Currently stored:**
+  - **`last_folder`** — Path of the last folder selected in the folder tree. Restored on startup so the app reopens in the same place.
+  - **`main_window_geometry`** — Main window size and position (Qt `saveGeometry` as base64). Restored on startup; saved when the main window is closed.
+  - **`viewer_window_geometry`** — Display (viewer) window size and position. Restored when a viewer window is opened; saved when that window is closed.
+  - **`slideshow_interval_seconds`** — Number of seconds between slides when slideshow is on (default 3, clamped 1–3600). Read when the viewer window is created; can be updated later via a “Config Slideshow” dialog.
+- **Possible future keys:** loop on/off, shuffle, recent folders, splitter positions.
+
+The persistence API lives in `photo_viewer.services.persistence`: `get_last_folder` / `set_last_folder`, `get_main_window_geometry` / `set_main_window_geometry`, `get_viewer_window_geometry` / `set_viewer_window_geometry`, `get_slideshow_interval_seconds` / `set_slideshow_interval_seconds`. New keys can be added with similar get/set helpers without changing the schema.
+
+---
+
+### 6. Performance Strategies
 
 - **Lazy folder tree:** Only the children of an expanded node are read from disk; no full recursive scan on startup.
 - **Asynchronous thumbnails:** Decoding and scaling are done on a `ThreadPoolExecutor` in `ThumbnailService`; the GUI thread only updates item icons when `thumbnail_ready` is emitted.
@@ -91,7 +109,7 @@ No file-list or thumbnail logic remains inside MainWindow; the center pane is fu
 
 ---
 
-### 6. Project Layout (Relevant Directories)
+### 7. Project Layout (Relevant Directories)
 
 ```
 src/photo_viewer/
@@ -102,6 +120,7 @@ src/photo_viewer/
 │   └── thumbnail_grid.py  # ThumbnailGridWidget
 ├── services/
 │   ├── __init__.py
+│   ├── persistence.py     # SQLite app state (last folder, future: slideshow settings, etc.)
 │   └── thumbnails.py       # ThumbnailService
 └── config/
     ├── __init__.py
