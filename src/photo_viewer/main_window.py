@@ -15,7 +15,7 @@ Date: 2025-02-10
 
 from pathlib import Path
 
-from PyQt6.QtCore import QByteArray, Qt
+from PyQt6.QtCore import QByteArray, QEvent, Qt
 from PyQt6.QtGui import QPixmap, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QFrame,
@@ -68,6 +68,7 @@ class MainWindow(QMainWindow):
 
         # Preview pane widgets (created in _create_preview_pane).
         self._preview_image_label: QLabel | None = None
+        self._preview_image_path: Path | None = None  # current image path, for resize re-scale
         # Folder tree view reference so we can expand/select by path on restore.
         self._folder_tree_view: QTreeView | None = None
 
@@ -352,6 +353,7 @@ class MainWindow(QMainWindow):
         )
         image_label.setMinimumHeight(200)
         image_label.setText("No image selected.")
+        image_label.installEventFilter(self)  # re-scale image when pane is resized (e.g. splitter)
 
         self._preview_image_label = image_label
 
@@ -404,23 +406,29 @@ class MainWindow(QMainWindow):
         viewer = ImageViewerWindow(image_paths, start_index=index, parent=self)
         viewer.show()
 
-    def _update_preview(self, image_path: Path) -> None:
-        """Load the given image path into the preview label."""
+    def _update_preview(self, image_path: Path | None) -> None:
+        """Load the given image path into the preview label, scaled to fit available space."""
         if self._preview_image_label is None:
             return
 
-        if not image_path.is_file():
-            self._preview_image_label.setText("Selected item is not a file.")
+        if image_path is None or not image_path.is_file():
+            self._preview_image_path = None
+            self._preview_image_label.setText(
+                "No image selected." if image_path is None else "Selected item is not a file."
+            )
             self._preview_image_label.setPixmap(QPixmap())
             return
 
         pixmap = QPixmap(str(image_path))
         if pixmap.isNull():
+            self._preview_image_path = None
             self._preview_image_label.setText("Cannot load image.")
             self._preview_image_label.setPixmap(QPixmap())
             return
 
-        # Scale to fit the label while preserving aspect ratio.
+        self._preview_image_path = image_path
+
+        # Scale to fit the label while preserving aspect ratio (uses current widget size).
         target_size = self._preview_image_label.size()
         if target_size.width() <= 0 or target_size.height() <= 0:
             target_size = pixmap.size()
@@ -432,6 +440,16 @@ class MainWindow(QMainWindow):
         )
         self._preview_image_label.setPixmap(scaled)
         self._preview_image_label.setText("")
+
+    def eventFilter(self, watched: QWidget, event: QEvent) -> bool:
+        """Re-scale the preview image when the preview pane is resized (e.g. splitter moved)."""
+        if (
+            event.type() == QEvent.Type.Resize
+            and watched is self._preview_image_label
+            and self._preview_image_path is not None
+        ):
+            self._update_preview(self._preview_image_path)
+        return super().eventFilter(watched, event)
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         """Persist main window geometry when the window is closed."""

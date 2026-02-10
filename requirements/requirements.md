@@ -1,4 +1,4 @@
-Project Requirements: PhotoView Desktop (ACDSee-style)
+Project Requirements: V-See (ACDSee-style photo viewer)
 1. Overview and Core Philosophy
 Goal: Develop a high-performance desktop photo viewer application that replicates the core "browse, view, and slideshow" functionality of classic ACDSee (specifically version 20, non-subscription).
 

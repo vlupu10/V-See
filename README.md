@@ -20,8 +20,11 @@ conda env create -f environment.yml
 
 Alternatively, use a venv: `python3 -m venv .venv`, `source .venv/bin/activate`, `pip install -r requirements.txt`, then `python main.py`.
 
-At this stage, the application starts directly in the "Manage" mode with a
-three‑pane layout (folder tree, file/thumbnail area, and preview/metadata pane),
-using dummy data. Future iterations will add real filesystem browsing, high‑performance
-thumbnailing, and the "View" and "Slideshow" modes.
+### What’s included
+
+- **Manage mode:** Three-pane layout (folder tree, thumbnail grid, preview). Lazy folder tree; async thumbnails. Last folder and main window geometry are restored on startup.
+- **Display (View) window:** Open by double-clicking an image. Prev/Next with wrap-around; Slideshow ON/OFF; Configure Slideshow (interval in seconds, persisted). Viewer geometry is saved when closed.
+- **Persistence:** SQLite store under `~/.config/v-see/` for last folder, window geometries, and slideshow interval.
+
+See `docs/ARCHITECTURE.md` for design and `requirements/requirements.md` for full product requirements.
 
