@@ -68,6 +68,24 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def ensure_initialized() -> None:
+    """
+    Ensure the config directory and state DB exist with the correct schema.
+    Call once at application startup so the first run never hits a missing DB.
+    Safe to call multiple times; idempotent.
+    """
+    path = _db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        conn = sqlite3.connect(str(path))
+        try:
+            _ensure_schema(conn)
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
 def _get_value(key: str) -> str | None:
     """Return the stored value for key, or None."""
     path = _db_path()

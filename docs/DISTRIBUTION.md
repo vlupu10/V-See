@@ -44,11 +44,62 @@ pyinstaller v-see.spec
 
 Output (double-clickable like a normal app):
 
-- **macOS:** `dist/V-See.app` — double-click to open, or drag to Applications. The spec builds a proper .app bundle.
+- **macOS:** `dist/V-See.app` — double-click to open, or install to Applications (see below).
 - **Windows:** `dist/V-See/V-See.exe` — double-click the exe (or create a shortcut on Desktop/Start Menu).
 - **Linux:** `dist/V-See/V-See` — run the binary; to get an icon in the application menu, use the `.desktop` file (see below).
 
 Build **on each target OS (and architecture)** to get the right install kit. The same `v-see.spec` is used everywhere.
+
+### macOS: Install to Applications
+
+To have V-See appear in the **Applications** folder (and in Launchpad / Spotlight like any other app):
+
+**Option A — Finder**  
+1. Open **Finder** and go to your project’s `dist` folder (where `V-See.app` is).  
+2. In the Finder sidebar, click **Applications** (or open **Go → Applications**).  
+3. **Drag** `V-See.app` into the Applications window.  
+4. Confirm if macOS asks to replace an existing copy.  
+5. You can then launch V-See from Launchpad, Spotlight (⌘Space), or Applications.
+
+**Option B — Terminal** (from the project root):
+
+```bash
+cp -R dist/V-See.app /Applications/
+```
+
+After that, open **Applications** in Finder (or Launchpad) and click **V-See** to run it.
+
+### Windows: Build and run (e.g. Dell Precision)
+
+Do this on the Windows machine (Dell Precision 5520 or any x64 PC):
+
+1. **Get the project**  
+   Copy the project folder onto the Dell (e.g. clone the repo, or copy `Project-photo-viewer` from your Mac via USB/network/cloud). You need at least: `main.py`, `v-see.spec`, `environment.yml`, `requirements.txt`, and the `src/` tree.
+
+2. **Install Python and dependencies**  
+   - Install [Miniconda for Windows](https://docs.conda.io/en/latest/miniconda.html) (or use an existing Python 3.9+).  
+   - Open **Command Prompt** or **PowerShell**, go to the project folder, then:
+   ```cmd
+   conda env create -f environment.yml
+   conda activate v-see
+   pip install pyinstaller
+   ```
+
+3. **Build the app**  
+   From the project root (same folder as `main.py` and `v-see.spec`):
+   ```cmd
+   pyinstaller v-see.spec --noconfirm
+   ```
+
+4. **Run V-See**  
+   - Open `dist\V-See\` in File Explorer and **double-click `V-See.exe`**.  
+   - Optional: right‑click `V-See.exe` → **Create shortcut**, then move the shortcut to Desktop or pin it to the Start menu.
+
+The first run creates `config\state.db` next to the exe (inside `dist\V-See\`). To “install” for daily use, copy the whole `dist\V-See` folder to e.g. `C:\Program Files\V-See\` or your user folder, then create a shortcut to `V-See.exe` where you like.
+
+### Windows: Zip or single .exe for end users
+
+To give users a **zip** or a **single .exe** (no Python/conda on their machine), see **docs/WINDOWS-DISTRIBUTION.md**. Summary: **Zip** — build, then zip contents of `dist\V-See` and include `packaging/Run V-See.bat`; user extracts and double-clicks .bat or exe. **Single .exe** — build PyInstaller onefile; distribute one file. **Installer-like** — use 7-Zip SFX to make `V-See-Setup.exe` that extracts and optionally runs the app.
 
 ### Linux: application menu icon
 

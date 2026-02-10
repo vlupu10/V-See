@@ -42,6 +42,9 @@ def main() -> None:
         _configure_sys_path()
 
     from photo_viewer.main_window import MainWindow
+    from photo_viewer.services.persistence import ensure_initialized
+
+    ensure_initialized()
 
     app = QApplication(sys.argv)
     window = MainWindow()
