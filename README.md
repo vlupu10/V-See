@@ -24,7 +24,7 @@ Alternatively, use a venv: `python3 -m venv .venv`, `source .venv/bin/activate`,
 
 - **Manage mode:** Three-pane layout (folder tree, thumbnail grid, preview). Lazy folder tree; async thumbnails. Last folder and main window geometry are restored on startup.
 - **Display (View) window:** Open by double-clicking an image. Prev/Next with wrap-around; Slideshow ON/OFF; Configure Slideshow (interval in seconds, persisted). Viewer geometry is saved when closed.
-- **Persistence:** SQLite store under `~/.config/v-see/` for last folder, window geometries, and slideshow interval.
+- **Persistence:** SQLite store in `<app folder>/config/state.db` for last folder, window geometries, and slideshow interval (travels with the app).
 
-See `docs/ARCHITECTURE.md` for design and `requirements/requirements.md` for full product requirements.
+See `docs/ARCHITECTURE.md` for design, `docs/DISTRIBUTION.md` for building install kits (macOS, Windows, Linux), and `requirements/requirements.md` for full product requirements.
 

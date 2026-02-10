@@ -30,6 +30,7 @@ MANIFEST
 # PyInstaller
 *.manifest
 *.spec
+!v-see.spec
 
 # Installer logs
 pip-log.txt
@@ -186,6 +187,8 @@ $RECYCLE.BIN/
 .nfs*
 
 # Project-specific
+# App state (created at runtime next to main.py or the executable)
+config/
 # Requirements reference screenshots (local only, not for repo)
 requirements/screenshots/
 # Thumbnail cache (if we add one later)

@@ -34,10 +34,12 @@ def main() -> None:
     """
     Create the Qt application, show the main window, and run the event loop.
 
-    Path configuration is done first so that imports of photo_viewer succeed;
-    then the main window is instantiated and displayed.
+    Path configuration is done first so that imports of photo_viewer succeed
+    when run from source; when run as a frozen bundle (e.g. PyInstaller),
+    the bundle already contains the package so we skip path setup.
     """
-    _configure_sys_path()
+    if not getattr(sys, "frozen", False):
+        _configure_sys_path()
 
     from photo_viewer.main_window import MainWindow
 

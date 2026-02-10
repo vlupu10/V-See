@@ -55,8 +55,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("V-See – Manage")
         self.resize(1400, 900)
 
-        # Root for the folder browser: current user's home directory.
-        # This gives quick access to common locations (Desktop, Documents, Pictures, etc.)
+        # Root for the folder browser: current user's home directory (OS-specific:
+        # e.g. C:\Users\<user> on Windows, /home/<user> on Linux, /Users/<user> on macOS).
         self._folder_root_path = Path.home()
         self._folder_root_item: QStandardItem | None = None
         self._folder_model = self._build_folder_model()
@@ -223,12 +223,23 @@ class MainWindow(QMainWindow):
     def _restore_last_folder(self) -> None:
         """
         Restore the last visited folder from persistence and select it,
-        so the thumbnail grid loads that folder. If none or invalid, select home.
+        so the thumbnail grid loads that folder. Only use the stored path if it
+        exists on this machine and is under the current user's home (so paths
+        from another OS or user are ignored). Otherwise select home.
         """
         last = get_last_folder()
-        if last and Path(last).is_dir():
-            self._expand_and_select_path(Path(last))
-        else:
+        home = self._folder_root_path.resolve()
+        use_last = False
+        if last:
+            try:
+                path = Path(last).resolve()
+                if path.is_dir():
+                    path.relative_to(home)  # raises ValueError if not under home
+                    use_last = True
+                    self._expand_and_select_path(path)
+            except (ValueError, OSError):
+                pass
+        if not use_last:
             self._expand_and_select_path(self._folder_root_path)
 
     def _expand_and_select_path(self, path: Path) -> None:
