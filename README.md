@@ -4,6 +4,13 @@ A high-performance desktop photo viewer written in Python using PyQt6.
 The design aims to closely follow the classic ACDSee "Manage" / "View" / "Slideshow" workflow,
 with a strong focus on instant responsiveness and lazy loading.
 
+### How to run: developer vs end user
+
+| Who | How |
+|-----|-----|
+| **Developer** (you, with terminal) | Open a terminal, `conda activate v-see`, then `./run.sh` (or `python main.py`). No need to build. |
+| **End user** (no terminal) | Build once with PyInstaller (`pyinstaller v-see.spec`), then **double‑click the app**: on macOS `V-See.app`, on Windows `V-See.exe`, on Linux the `V-See` binary or an application menu entry. See [Building install kits](docs/DISTRIBUTION.md). |
+
 ### Quick start (development)
 
 - **Create the conda environment** (recommended):

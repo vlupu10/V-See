@@ -42,13 +42,24 @@ pip install pyinstaller
 pyinstaller v-see.spec
 ```
 
-Output:
+Output (double-clickable like a normal app):
 
-- **macOS:** `dist/V-See.app` (you can wrap it in a .dmg for distribution)
-- **Windows:** `dist/V-See/` (folder with `V-See.exe` and DLLs) or a single exe if onefile is enabled
-- **Linux:** `dist/V-See/` (folder with executable and libs)
+- **macOS:** `dist/V-See.app` — double-click to open, or drag to Applications. The spec builds a proper .app bundle.
+- **Windows:** `dist/V-See/V-See.exe` — double-click the exe (or create a shortcut on Desktop/Start Menu).
+- **Linux:** `dist/V-See/V-See` — run the binary; to get an icon in the application menu, use the `.desktop` file (see below).
 
 Build **on each target OS (and architecture)** to get the right install kit. The same `v-see.spec` is used everywhere.
+
+### Linux: application menu icon
+
+To have V-See appear in the application menu (so users can click an icon instead of opening a terminal):
+
+1. Build as above; the executable is `dist/V-See/V-See`.
+2. Copy the template: `cp packaging/v-see.desktop ~/.local/share/applications/` (or use the path where you installed V-See).
+3. Edit the copy and set `Exec=` to the **full path** of the executable, e.g. `Exec=/home/username/dist/V-See/V-See`.
+4. Optional: set `Icon=` to a full path to a PNG/icon if you add one.
+
+After that, “V-See” will show up in the Graphics or Viewer menu and can be launched with a single click.
 
 If the built app fails to start with a Qt platform plugin error, PyQt6’s libraries may need to be fully collected; see PyInstaller’s docs and the PyQt6 hook (e.g. `--collect-all PyQt6` or adding a hook to the spec).
 

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=V-See
+Comment=Photo viewer (ACDSee-style)
+# Set Exec to the full path of the V-See binary (e.g. /home/user/dist/V-See/V-See)
+Exec=/path/to/V-See/V-See
+Icon=view-paged
+Terminal=false
+Categories=Graphics;Viewer;Photography;

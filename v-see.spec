@@ -1,5 +1,8 @@
 # PyInstaller spec for V-See. Run from project root: pyinstaller v-see.spec
 # Build on each target OS/arch (macOS M1, Windows x64, Linux ARM/x64) to get that install kit.
+# Result: macOS -> V-See.app (double-clickable); Windows/Linux -> dist/V-See/ with executable.
+
+import sys
 
 block_cipher = None
 
@@ -53,3 +56,18 @@ coll = COLLECT(
     upx_exclude=[],
     name='V-See',
 )
+
+# On macOS, wrap the folder in a .app bundle so the user can double-click it like any app.
+if sys.platform == 'darwin':
+    app = BUNDLE(
+        coll,
+        name='V-See.app',
+        icon=None,
+        bundle_identifier='com.vsee.photo-viewer',
+        info_plist={
+            'NSPrincipalClass': 'NSApplication',
+            'CFBundleName': 'V-See',
+            'CFBundleDisplayName': 'V-See',
+            'CFBundleGetInfoString': 'V-See Photo Viewer',
+        },
+    )
