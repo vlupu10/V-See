@@ -3,7 +3,8 @@ Persistence service for V-See using SQLite.
 
 Stores application state (e.g. last visited folder path) so that on the next
 launch the app can open the same folder. Uses the standard library sqlite3
-module; the database file is created in a user config directory.
+module. The database is stored in a config subfolder next to the application
+so it stays with the app and works the same on all OSes.
 
 Author: Viorel LUPU
 Date: 2025-02-10
@@ -12,6 +13,7 @@ Date: 2025-02-10
 from __future__ import annotations
 
 import sqlite3
+import sys
 from pathlib import Path
 
 # Keys in app_state table.
@@ -22,19 +24,35 @@ SLIDESHOW_INTERVAL_SECONDS_KEY = "slideshow_interval_seconds"
 
 DEFAULT_SLIDESHOW_INTERVAL_SECONDS = 3
 
+# Subfolder under the application directory where state is stored (recommended location).
+CONFIG_SUBDIR = "config"
+STATE_DB_FILENAME = "state.db"
+
+
+def _application_dir() -> Path:
+    """
+    Return the directory containing the application (for portable state).
+
+    - When run as a frozen bundle (e.g. PyInstaller): directory containing the executable.
+    - When run from source: directory containing the main script (e.g. main.py).
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(sys.argv[0]).resolve().parent
+
 
 def _db_path() -> Path:
     """
     Return the path to the SQLite state file.
 
-    Uses a dedicated directory under the user's home so that state
-    persists across runs and is cross-platform friendly.
+    Stored in a subfolder of the application directory so that state travels
+    with the app and is the same on every OS. Recommended location:
+    <application folder>/config/state.db
     """
-    home = Path.home()
-    # ~/.config/v-see on Unix; ~/Library/Application Support on macOS is another option.
-    config_dir = home / ".config" / "v-see"
+    app_dir = _application_dir()
+    config_dir = app_dir / CONFIG_SUBDIR
     config_dir.mkdir(parents=True, exist_ok=True)
-    return config_dir / "state.db"
+    return config_dir / STATE_DB_FILENAME
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
@@ -48,6 +66,24 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         """
     )
     conn.commit()
+
+
+def ensure_initialized() -> None:
+    """
+    Ensure the config directory and state DB exist with the correct schema.
+    Call once at application startup so the first run never hits a missing DB.
+    Safe to call multiple times; idempotent.
+    """
+    path = _db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        conn = sqlite3.connect(str(path))
+        try:
+            _ensure_schema(conn)
+        finally:
+            conn.close()
+    except Exception:
+        pass
 
 
 def _get_value(key: str) -> str | None:

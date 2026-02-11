@@ -90,7 +90,7 @@ No file-list or thumbnail logic remains inside MainWindow; the center pane is fu
 
 Application state is persisted in a **SQLite** database so that preferences and context survive restarts. The implementation uses the Python standard library `sqlite3` (no extra dependency).
 
-- **Location:** `~/.config/v-see/state.db` (directory created automatically).
+- **Location:** In a `config` subfolder next to the application: `<app dir>/config/state.db`. When run from source this is the project root (directory containing `main.py`); when run as a frozen bundle it is the directory containing the executable. The directory is created automatically.
 - **Schema:** A single table `app_state (key TEXT PRIMARY KEY, value TEXT)` used as a key–value store.
 - **Currently stored:**
   - **`last_folder`** — Path of the last folder selected in the folder tree. Restored on startup so the app reopens in the same place.

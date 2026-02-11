@@ -14,8 +14,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Sequence
 
-from PyQt6.QtCore import QByteArray, Qt, QTimer
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import QByteArray, QEvent, Qt, QTimer
+from PyQt6.QtGui import QKeySequence, QPixmap, QShortcut
 from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -82,9 +82,11 @@ class ImageViewerWindow(QMainWindow):
         self._btn_prev: QPushButton
         self._btn_next: QPushButton
         self._btn_slideshow: QPushButton
+        self._btn_fullscreen: QPushButton
         self._current_pixmap: QPixmap | None = None
 
         self._init_ui()
+        self._update_fullscreen_button_text()
         self._update_image()
 
     # ------------------------------------------------------------------ UI
@@ -119,12 +121,24 @@ class ImageViewerWindow(QMainWindow):
         btn_config = QPushButton("Configure Slideshow", central)
         btn_config.clicked.connect(self._open_slideshow_config)
 
+        self._btn_fullscreen = QPushButton("Full Screen", central)
+        self._btn_fullscreen.clicked.connect(self._toggle_fullscreen)
+
+        fullscreen_hint = QLabel("Esc to exit full screen", central)
+        fullscreen_hint.setStyleSheet("color: gray; font-size: 11px;")
+
         controls_layout.addWidget(self._btn_prev)
         controls_layout.addWidget(self._btn_next)
         controls_layout.addSpacing(16)
         controls_layout.addWidget(self._btn_slideshow)
         controls_layout.addWidget(btn_config)
+        controls_layout.addWidget(self._btn_fullscreen)
+        controls_layout.addWidget(fullscreen_hint)
         controls_layout.addStretch(1)
+
+        # Escape exits full screen only (does not close the window).
+        esc_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
+        esc_shortcut.activated.connect(self._exit_fullscreen_if_active)
 
         # Main image area.
         self._image_label = QLabel(central)
@@ -192,6 +206,34 @@ class ImageViewerWindow(QMainWindow):
             self._slideshow_interval_ms = get_slideshow_interval_seconds() * 1000
             if self._slideshow_running:
                 self._slideshow_timer.setInterval(self._slideshow_interval_ms)
+
+    def _toggle_fullscreen(self) -> None:
+        """Toggle between full screen and normal window. Also bound to the standard fullscreen shortcut (e.g. F11)."""
+        if self.isFullScreen():
+            self.showNormal()
+        else:
+            self.showFullScreen()
+        self._update_fullscreen_button_text()
+        QTimer.singleShot(0, self._apply_scaled_pixmap)
+
+    def _exit_fullscreen_if_active(self) -> None:
+        """Exit full screen when the user presses Escape. No effect if not full screen."""
+        if self.isFullScreen():
+            self.showNormal()
+            self._update_fullscreen_button_text()
+            QTimer.singleShot(0, self._apply_scaled_pixmap)
+
+    def _update_fullscreen_button_text(self) -> None:
+        """Set the Full Screen button label to match current state."""
+        self._btn_fullscreen.setText(
+            "Exit Full Screen" if self.isFullScreen() else "Full Screen"
+        )
+
+    def changeEvent(self, event: QEvent) -> None:  # type: ignore[override]
+        """Update Full Screen button text when window state changes (e.g. user exits via window controls)."""
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange:
+            self._update_fullscreen_button_text()
 
     # --------------------------------------------------------------- image
 
