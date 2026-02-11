@@ -5,7 +5,8 @@ Defines the primary window shown at startup, implementing the Manage-mode
 three-pane layout (folder tree, file list/thumbnails, preview/metadata).
 All panes are built via private helpers and wired with QSplitters for
 resizable layout. The folder tree mirrors the real filesystem (rooted at
-the user's home directory) and is populated lazily as folders are expanded.
+the user's home directory on macOS/Linux, or drive root on Windows).
+Child directories are populated lazily as folders are expanded.
 The center pane uses the ThumbnailGridWidget component; the preview pane
 is still a placeholder.
 
@@ -13,6 +14,7 @@ Author: Viorel LUPU
 Date: 2025-02-10
 """
 
+import sys
 from pathlib import Path
 
 from PyQt6.QtCore import QByteArray, QEvent, Qt
@@ -22,6 +24,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QPushButton,
     QSplitter,
     QTreeView,
     QVBoxLayout,
@@ -55,9 +58,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("V-See – Manage")
         self.resize(1400, 900)
 
-        # Root for the folder browser: current user's home directory (OS-specific:
-        # e.g. C:\Users\<user> on Windows, /home/<user> on Linux, /Users/<user> on macOS).
-        self._folder_root_path = Path.home()
+        # Root for the folder browser. On Windows: drive root (C:\) so users can
+        # navigate to C:\Projects, C:\Users, etc. On macOS/Linux: home directory.
+        if sys.platform == "win32":
+            self._folder_root_path = Path(Path.home().anchor)  # e.g. C:\
+        else:
+            self._folder_root_path = Path.home()
         self._folder_root_item: QStandardItem | None = None
         self._folder_model = self._build_folder_model()
 
@@ -71,6 +77,8 @@ class MainWindow(QMainWindow):
         self._preview_image_path: Path | None = None  # current image path, for resize re-scale
         # Folder tree view reference so we can expand/select by path on restore.
         self._folder_tree_view: QTreeView | None = None
+        # Go-up button (Windows only) for navigating to parent folder.
+        self._btn_go_up: QPushButton | None = None
 
         self._init_ui()
 
@@ -113,15 +121,25 @@ class MainWindow(QMainWindow):
         """
         Create the left pane: a labelled "Folders" header and a tree view.
 
-        The tree is backed by a QStandardItemModel that mirrors the real
-        filesystem starting from the user's home directory. Child directories
-        for a node are only populated when that node is expanded, avoiding
-        heavy upfront scanning.
+        On Windows, a "↑" (Go up) button is shown at the top to navigate to
+        the parent folder. The tree is backed by a QStandardItemModel that
+        mirrors the real filesystem, rooted at drive root (Windows) or home
+        (macOS/Linux). Child directories are populated lazily when expanded.
         """
         container = QWidget(self)
         layout = QVBoxLayout(container)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
+
+        # Windows only: "Go up" button to navigate to parent folder.
+        if sys.platform == "win32":
+            btn_go_up = QPushButton("↑", container)
+            btn_go_up.setObjectName("btnGoUp")
+            btn_go_up.setToolTip("Go up one level")
+            btn_go_up.setMaximumWidth(32)
+            btn_go_up.clicked.connect(self._on_go_up_clicked)
+            self._btn_go_up = btn_go_up
+            layout.addWidget(btn_go_up)
 
         header = QLabel("Folders", container)
         header.setObjectName("folderHeader")
@@ -153,6 +171,48 @@ class MainWindow(QMainWindow):
         layout.addWidget(tree_view)
 
         return container
+
+    def _get_selected_folder_path(self) -> Path | None:
+        """Return the path of the currently selected folder, or None."""
+        if self._folder_tree_view is None or self._folder_model is None:
+            return None
+        index = self._folder_tree_view.currentIndex()
+        item = self._folder_model.itemFromIndex(index)
+        if item is None:
+            return None
+        path_str = item.data(Qt.ItemDataRole.UserRole)
+        if not path_str:
+            return None
+        return Path(path_str)
+
+    def _on_go_up_clicked(self) -> None:
+        """
+        Navigate to the parent of the currently selected folder.
+
+        Windows only. Disabled when at drive root (parent equals self).
+        """
+        current = self._get_selected_folder_path()
+        if current is None or not current.is_dir():
+            return
+        parent = current.resolve().parent
+        # At drive root, parent equals current (e.g. C:\ parent is C:\).
+        if parent == current or not parent.is_dir():
+            return
+        set_last_folder(str(parent))
+        self._expand_and_select_path(parent)
+        self._update_go_up_button_state()
+
+    def _update_go_up_button_state(self) -> None:
+        """Enable or disable the Go up button based on current selection."""
+        if self._btn_go_up is None:
+            return
+        current = self._get_selected_folder_path()
+        if current is None or not current.is_dir():
+            self._btn_go_up.setEnabled(False)
+            return
+        parent = current.resolve().parent
+        # Disable when at drive root (parent equals current).
+        self._btn_go_up.setEnabled(parent != current and parent.is_dir())
 
     def _build_folder_model(self) -> QStandardItemModel:
         """
@@ -224,47 +284,48 @@ class MainWindow(QMainWindow):
         """
         Restore the last visited folder from persistence and select it,
         so the thumbnail grid loads that folder. Only use the stored path if it
-        exists on this machine and is under the current user's home (so paths
-        from another OS or user are ignored). Otherwise select home.
+        exists on this machine and is under the tree root (drive root on Windows,
+        home on macOS/Linux). Paths from another OS or user are ignored.
         """
         last = get_last_folder()
-        home = self._folder_root_path.resolve()
+        root = self._folder_root_path.resolve()
         use_last = False
         if last:
             try:
                 path = Path(last).resolve()
                 if path.is_dir():
-                    path.relative_to(home)  # raises ValueError if not under home
+                    path.relative_to(root)  # raises ValueError if not under root
                     use_last = True
                     self._expand_and_select_path(path)
             except (ValueError, OSError):
                 pass
         if not use_last:
             self._expand_and_select_path(self._folder_root_path)
+        self._update_go_up_button_state()
 
     def _expand_and_select_path(self, path: Path) -> None:
         """
         Expand the folder tree along the given path and select the final node.
 
-        Used on startup to open the last folder, or to fall back to home.
+        Used on startup to open the last folder, or to fall back to root.
         The tree is lazy so we expand each segment and find the matching child.
         """
         if self._folder_tree_view is None or self._folder_root_item is None:
             return
 
         path = path.resolve()
-        home = self._folder_root_path.resolve()
+        root = self._folder_root_path.resolve()
 
-        if path == home:
+        if path == root:
             root_index = self._folder_model.indexFromItem(self._folder_root_item)
             self._folder_tree_view.expand(root_index)
             self._folder_tree_view.setCurrentIndex(root_index)
             return
 
         try:
-            relative = path.relative_to(home)
+            relative = path.relative_to(root)
         except ValueError:
-            # Path not under home (e.g. different drive); select home.
+            # Path not under root (e.g. different drive on Windows); select root.
             root_index = self._folder_model.indexFromItem(self._folder_root_item)
             self._folder_tree_view.expand(root_index)
             self._folder_tree_view.setCurrentIndex(root_index)
@@ -272,7 +333,7 @@ class MainWindow(QMainWindow):
 
         parts = relative.parts
         current_item = self._folder_root_item
-        current_path = home
+        current_path = root
 
         for part in parts:
             current_path = current_path / part
@@ -394,6 +455,7 @@ class MainWindow(QMainWindow):
         set_last_folder(path_str)
         if self._thumbnail_grid is not None:
             self._thumbnail_grid.load_folder(folder_path)
+        self._update_go_up_button_state()
 
     def _on_thumbnail_selected(self, path_str: str) -> None:
         """

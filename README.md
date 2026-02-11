@@ -8,8 +8,9 @@ with a strong focus on instant responsiveness and lazy loading.
 
 | Who | How |
 |-----|-----|
-| **Developer** (you, with terminal) | Open a terminal, `conda activate v-see`, then `./run.sh` (or `python main.py`). No need to build. |
-| **End user** (no terminal) | Build once with PyInstaller (`pyinstaller v-see.spec`), then **double‑click the app**: on macOS `V-See.app`, on Windows `V-See.exe`, on Linux the `V-See` binary or an application menu entry. See [Building install kits](docs/DISTRIBUTION.md). |
+| **Developer** (with terminal) | Open a terminal, `conda activate v-see`, then `./run.sh` (or `python main.py`). No need to build. |
+| **End user (Windows)** | Extract **V-See-Windows.zip**, then double‑click **V-See.exe**. No Python or build required. See [Installing V-See on Windows](docs/WINDOWS-SETUP.md#installing-v-see-end-users--no-build-required). |
+| **End user (macOS/Linux)** | Build once with PyInstaller, then double‑click the app. See [Building install kits](docs/DISTRIBUTION.md). |
 
 ### Quick start (development)
 

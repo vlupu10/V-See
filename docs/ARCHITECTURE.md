@@ -24,7 +24,8 @@ The application has three main modes of operation:
 When the app launches, the main window shows **Manage** mode with a resizable three-pane layout:
 
 - **Left pane — Folder tree**
-  - Hierarchical view of the filesystem rooted at the user’s home directory.
+  - Hierarchical view of the filesystem rooted at drive root (e.g. `C:\`) on Windows—so users can navigate to `C:\Projects`, `C:\Users`, etc.—or home directory on macOS/Linux.
+  - **Windows only:** a "↑" (Go up) button at the top navigates to the parent folder; disabled when at drive root.
   - Implemented in `MainWindow` with a `QStandardItemModel`; child directories are loaded **lazily** when a node is expanded (no upfront recursive scan).
   - Selection in the tree drives the content of the center pane.
 

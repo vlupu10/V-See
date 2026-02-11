@@ -72,6 +72,7 @@ class ImageViewerWindow(QMainWindow):
         # Simple slideshow: when active, a timer advances to the next image
         # every N seconds (from persistence, default 3) with wrap-around.
         self._slideshow_timer = QTimer(self)
+        self._slideshow_timer.setSingleShot(False)  # Repeating timer
         self._slideshow_timer.timeout.connect(self._on_slideshow_tick)
         self._slideshow_interval_ms = get_slideshow_interval_seconds() * 1000
 
@@ -173,7 +174,7 @@ class ImageViewerWindow(QMainWindow):
         self._current_index = (self._current_index - 1) % len(self._image_paths)
         self._update_image()
 
-    def _toggle_slideshow(self) -> None:
+    def _toggle_slideshow(self, _checked: bool = False) -> None:
         """
         Start/stop slideshow.
 
@@ -188,7 +189,9 @@ class ImageViewerWindow(QMainWindow):
         else:
             if not self._image_paths:
                 return
-            self._slideshow_timer.start(self._slideshow_interval_ms)
+            interval_ms = max(100, self._slideshow_interval_ms)
+            self._slideshow_timer.setInterval(int(interval_ms))
+            self._slideshow_timer.start()
             self._slideshow_running = True
             self._btn_slideshow.setText("Slideshow OFF")
 
