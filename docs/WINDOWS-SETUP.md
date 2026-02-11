@@ -1,6 +1,46 @@
 # V-See on Windows: Setup and Distribution
 
-This document describes how to set up V-See on a Windows machine from scratch (including Python/conda installation) and how to create a Windows installer or distributable package.
+This document covers both **installing V-See as an end user** (no build required) and **building V-See from source** (for developers).
+
+---
+
+## Installing V-See (End Users – No Build Required)
+
+If you have **V-See-Windows.zip**, you can run V-See without installing Python or any developer tools.
+
+### Step 1: Download and extract
+
+1. Download **V-See-Windows.zip** (from a release page, shared link, or project folder).
+2. **Extract the zip file:**
+   - Right-click the zip file → **Extract All…**
+   - Choose a folder (e.g. Desktop, Documents, or `C:\Users\YourName\V-See`)
+   - Click **Extract**
+
+### Step 2: Run V-See
+
+1. Open the extracted folder.
+2. Double-click **V-See.exe** (or **Run V-See.bat**) to start the app.
+
+That’s it. No installation wizard, no Python, no terminal.
+
+### Optional: Create a shortcut
+
+To start V-See from your Desktop:
+
+1. Right-click **V-See.exe** → **Create shortcut**
+2. Cut the shortcut (Ctrl+X) and paste it on your Desktop (Ctrl+V)
+3. You can rename it to “V-See” if you like
+
+### System requirements
+
+- Windows 10 or 11 (64-bit)
+- No other software required
+
+---
+
+## Building V-See from Source (Developers)
+
+The following sections are for developers who want to run V-See from source or create distribution packages.
 
 ---
 
