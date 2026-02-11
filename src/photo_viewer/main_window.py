@@ -61,7 +61,7 @@ class MainWindow(QMainWindow):
         # Root for the folder browser. On Windows: drive root (C:\) so users can
         # navigate to C:\Projects, C:\Users, etc. On macOS/Linux: home directory.
         if sys.platform == "win32":
-            self._folder_root_path = Path.home().anchor  # e.g. C:\
+            self._folder_root_path = Path(Path.home().anchor)  # e.g. C:\
         else:
             self._folder_root_path = Path.home()
         self._folder_root_item: QStandardItem | None = None
