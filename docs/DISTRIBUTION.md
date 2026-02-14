@@ -155,6 +155,37 @@ You can skip install kits and run from source on each machine:
 
 This is the same workflow you use now; no build step, but each machine needs Python and conda.
 
+## vio-python (mp3-player) for music in builds
+
+V-See’s slideshow music uses the **mp3-player** package from **vio-python**. For the built app to include music playback:
+
+1. **Layout:** `vio-python` must be a **sibling folder** of `Project-photo-viewer`:
+   ```
+   vldesign/
+   ├── Project-photo-viewer/   # V-See
+   └── vio-python/             # mp3-player source
+   ```
+
+2. **Before building:** Install mp3-player in editable mode:
+   ```bash
+   pip install -e "../vio-python[qt]"
+   ```
+   The `build-and-zip.sh` / `build-and-zip.bat` scripts do this automatically when vio-python is present.
+
+3. **Without vio-python:** The app builds and runs, but Manage-mode MP3 player and slideshow music are disabled. No error—it just omits those features.
+
+See the vio-python README (in the sibling `vio-python/` folder) for installation and API details.
+
+## Creating a GitHub Release
+
+1. Build install kits on each target OS (macOS, Windows) using the scripts above.
+2. Zip the outputs as `V-See-macOS.zip` (contents of `dist/V-See.app` or the app bundle) and `V-See-Windows.zip` (contents of `dist/V-See/` plus `Run V-See.bat`).
+3. On GitHub: **Releases** → **Draft a new release** → tag `v1.0.0` (or next version).
+4. Attach the zip files and add release notes (e.g. features, known limitations).
+5. Publish.
+
+End users download the zips from the Releases page; no build tools needed.
+
 ## Summary
 
 - **Yes, you can create install kits** for macOS (M1), Windows (Dell), and Linux (Cubieboard).
