@@ -2,6 +2,11 @@
 
 This document describes how to build install kits (standalone executables or installers) for V-See on different machines and operating systems.
 
+## Developer vs end user
+
+- **Developer:** You build the app with PyInstaller. You need conda, Python, PyInstaller, and optionally vio-python (mp3-player) for music support. You run `build-and-zip.sh` or `build-and-zip.bat` to produce the zip.
+- **End user:** Downloads the zip (e.g. V-See-macOS.zip or V-See-Windows.zip), extracts it, and double-clicks the app. No Python, conda, vio-python, or any developer tools required—everything needed to run is bundled in the zip.
+
 ## Why one build per platform?
 
 V-See is a Python + PyQt6 app. To run it **without** requiring users to install Python, conda, or dependencies, you “freeze” the app into a standalone bundle. That bundle is **platform- and architecture-specific**:
@@ -37,8 +42,18 @@ pip install pyinstaller
 
 ### Build (run from project root)
 
+**Recommended** – use the build script (installs mp3-player for music, then builds and zips):
+
+- **macOS/Linux:** `./scripts/build-and-zip.sh`
+- **Windows:** `scripts\build-and-zip.bat`
+
+Or manually:
+
 ```bash
 # From Project-photo-viewer/
+conda activate v-see
+pip install -e "../vio-python[qt]"   # optional, for music support
+pip install pyinstaller
 pyinstaller v-see.spec
 ```
 
@@ -47,6 +62,8 @@ Output (double-clickable like a normal app):
 - **macOS:** `dist/V-See.app` — double-click to open, or install to Applications (see below).
 - **Windows:** `dist/V-See/V-See.exe` — double-click the exe (or create a shortcut on Desktop/Start Menu).
 - **Linux:** `dist/V-See/V-See` — run the binary; to get an icon in the application menu, use the `.desktop` file (see below).
+
+Zip the output to distribute to end users (e.g. `V-See-macOS.zip`, `V-See-Windows.zip`). End users extract and run—no Python or developer tools required.
 
 Build **on each target OS (and architecture)** to get the right install kit. The same `v-see.spec` is used everywhere.
 
@@ -137,6 +154,37 @@ You can skip install kits and run from source on each machine:
 3. `conda activate v-see` then `./run.sh` (or `python main.py`).
 
 This is the same workflow you use now; no build step, but each machine needs Python and conda.
+
+## vio-python (mp3-player) for music in builds
+
+V-See’s slideshow music uses the **mp3-player** package from **vio-python**. For the built app to include music playback:
+
+1. **Layout:** `vio-python` must be a **sibling folder** of `Project-photo-viewer`:
+   ```
+   vldesign/
+   ├── Project-photo-viewer/   # V-See
+   └── vio-python/             # mp3-player source
+   ```
+
+2. **Before building:** Install mp3-player in editable mode:
+   ```bash
+   pip install -e "../vio-python[qt]"
+   ```
+   The `build-and-zip.sh` / `build-and-zip.bat` scripts do this automatically when vio-python is present.
+
+3. **Without vio-python:** The app builds and runs, but Manage-mode MP3 player and slideshow music are disabled. No error—it just omits those features.
+
+See the vio-python README (in the sibling `vio-python/` folder) for installation and API details.
+
+## Creating a GitHub Release
+
+1. Build install kits on each target OS (macOS, Windows) using the scripts above.
+2. Zip the outputs as `V-See-macOS.zip` (contents of `dist/V-See.app` or the app bundle) and `V-See-Windows.zip` (contents of `dist/V-See/` plus `Run V-See.bat`).
+3. On GitHub: **Releases** → **Draft a new release** → tag `v1.0.0` (or next version).
+4. Attach the zip files and add release notes (e.g. features, known limitations).
+5. Publish.
+
+End users download the zips from the Releases page; no build tools needed.
 
 ## Summary
 

@@ -1,14 +1,24 @@
 # PyInstaller spec for V-See. Run from project root: pyinstaller v-see.spec
 # Build on each target OS/arch (macOS M1, Windows x64, Linux ARM/x64) to get that install kit.
 # Result: macOS -> V-See.app (double-clickable); Windows/Linux -> dist/V-See/ with executable.
+# Requires mp3-player[qt] in the build env for music support. Run scripts/build-and-zip.sh
+# (macOS/Linux) or scripts/build-and-zip.bat (Windows) to install deps and build.
 
+import os
 import sys
 
 block_cipher = None
 
+# Add vio-python path (sibling of Project-photo-viewer) so mp3_player is found
+# Run pyinstaller from project root; cwd is Project-photo-viewer
+_vio_python = os.path.normpath(os.path.join(os.getcwd(), "..", "vio-python"))
+_pathex = ["src"]
+if os.path.isdir(_vio_python):
+    _pathex.append(_vio_python)
+
 a = Analysis(
     ['main.py'],
-    pathex=['src'],
+    pathex=_pathex,
     binaries=[],
     datas=[],
     hiddenimports=[
