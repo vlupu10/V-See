@@ -279,8 +279,15 @@ class ImageViewerWindow(QMainWindow):
             return
 
         path = self._image_paths[self._current_index]
+        try:
+            pixmap = QPixmap(str(path))
+        except (OSError, PermissionError):
+            self._image_label.setText("Cannot load image (device disconnected?).")
+            self._image_label.setPixmap(QPixmap())
+            self._filename_label.setText(path.name)
+            self._current_pixmap = None
+            return
 
-        pixmap = QPixmap(str(path))
         if pixmap.isNull():
             self._image_label.setText("Cannot load image.")
             self._image_label.setPixmap(QPixmap())
