@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
 )
 
 from photo_viewer.components.slideshow_config_dialog import SlideshowConfigDialog
+from photo_viewer.services.display_sleep import DisplaySleepPreventer
 from photo_viewer.services.persistence import (
     get_slideshow_interval_seconds,
     get_viewer_window_geometry,
@@ -87,6 +88,7 @@ class ImageViewerWindow(QMainWindow):
         self._slideshow_interval_ms = get_slideshow_interval_seconds() * 1000
 
         self._slideshow_running = False
+        self._display_sleep_preventer = DisplaySleepPreventer()
 
         self._image_label: QLabel
         self._filename_label: QLabel
@@ -203,6 +205,7 @@ class ImageViewerWindow(QMainWindow):
             self._slideshow_running = False
             self._btn_slideshow.setText("Slideshow ON")
             self._stop_slideshow_music()
+            self._display_sleep_preventer.stop()
         else:
             if not self._image_paths:
                 return
@@ -211,6 +214,7 @@ class ImageViewerWindow(QMainWindow):
             self._slideshow_timer.start()
             self._slideshow_running = True
             self._btn_slideshow.setText("Slideshow OFF")
+            self._display_sleep_preventer.start()
             self._start_slideshow_music_if_configured()
 
     def _start_slideshow_music_if_configured(self) -> None:
@@ -345,8 +349,9 @@ class ImageViewerWindow(QMainWindow):
         self._apply_scaled_pixmap()
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
-        """Stop slideshow music and persist geometry when the window is closed."""
+        """Stop slideshow music, allow display sleep, and persist geometry when the window is closed."""
         self._stop_slideshow_music()
+        self._display_sleep_preventer.stop()
         geo = self.saveGeometry()
         if not geo.isEmpty():
             set_viewer_window_geometry(geo.toBase64().data().decode("ascii"))
