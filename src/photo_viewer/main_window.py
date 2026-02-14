@@ -271,6 +271,7 @@ class MainWindow(QMainWindow):
         music_files_list = QListWidget(music_section)
         music_files_list.setObjectName("musicFileList")
         music_files_list.setMinimumHeight(80)
+        music_files_list.itemDoubleClicked.connect(self._on_music_file_double_clicked)
         self._music_file_list = music_files_list
         music_layout.addWidget(music_files_label)
         music_layout.addWidget(music_files_list)
@@ -460,6 +461,20 @@ class MainWindow(QMainWindow):
         set_last_music_folder(path_str)
         self._update_go_up_button_state()
         self._update_music_file_list()
+
+    def _on_music_file_double_clicked(self, item: QListWidgetItem) -> None:
+        """Double-click on a song: jump to it and start playback immediately."""
+        folder = self._get_selected_music_folder_path()
+        if folder is None or self._mp3_player is None:
+            return
+        song_name = item.text()
+        if not song_name:
+            return
+        try:
+            self._mp3_player.set_playlist_from_folder(folder, start_from_name=song_name)
+            self._mp3_player.start_playback()
+        except (OSError, PermissionError):
+            pass
 
     def _update_music_file_list(self) -> None:
         """Populate the music file list and MP3 player from the selected music folder."""
@@ -661,12 +676,15 @@ class MainWindow(QMainWindow):
         Start music playback if a music folder is selected and the persisted
         dropdown is not "No music". Called by the viewer when slideshow starts.
         Skips if the folder is invalid (e.g. disconnected external drive).
+        If music is already playing, leaves it playing (does not restart).
         """
         folder = self._get_selected_music_folder_path()
         if folder is None or not self._is_path_valid_folder(str(folder)):
             return
         if self._mp3_player is None:
             return
+        if self._mp3_player.is_playing():
+            return  # Already playing; don't restart
         music_choice = get_slideshow_music()
         if music_choice == SlideshowConfigDialog.NO_MUSIC:
             return
