@@ -15,12 +15,14 @@ Thanks for your interest in contributing.
 3. Optional (music playback): `pip install -e "../vio-python[qt]"` (from Project-photo-viewer directory).
 4. Run the app: `./run.sh` (macOS/Linux) or `python main.py` (Windows).
 
+The `environment.yml` includes ffmpeg (video thumbnails) and PyQt6-Multimedia (video playback). Video support works out of the box when using the conda env.
+
 ## Building for distribution
 
 - **macOS/Linux:** `./scripts/build-and-zip.sh`
 - **Windows:** `scripts\build-and-zip.bat`
 
-For music support in the built app, ensure `vio-python` is a sibling folder of `Project-photo-viewer` before building. The build script installs `mp3-player[qt]` automatically when possible.
+For music support in the built app, ensure `vio-python` is a sibling folder of `Project-photo-viewer` before building. The build script installs `mp3-player[qt]` automatically when possible. Video support (thumbnails and playback) is included via PyQt6-Multimedia in the environment; ffmpeg improves video thumbnails.
 
 ## Project structure
 

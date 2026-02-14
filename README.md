@@ -38,7 +38,7 @@ Alternatively, use a venv: `python3 -m venv .venv`, `source .venv/bin/activate`,
 
 **Optional – music playback during slideshow:** `pip install -e "../vio-python[qt]"` (from Project-photo-viewer). Requires ffmpeg on Windows/Linux; macOS uses built-in afplay.
 
-**Video thumbnails and playback:** Requires ffmpeg (for video thumbnails) and PyQt6-Multimedia, PyQt6-MultimediaWidgets (included in `requirements.txt`).
+**Video thumbnails and playback:** ffmpeg (for thumbnails—prefers embedded thumbnail when present, e.g. DJI/GoPro) and PyQt6-Multimedia (included in `requirements.txt`).
 
 ### What’s included
 

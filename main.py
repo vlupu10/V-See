@@ -8,8 +8,14 @@ Author: Viorel LUPU
 Date: 2025-02-10
 """
 
+import os
 import sys
 from pathlib import Path
+
+# Disable FFmpeg VideoToolbox HW decode before Qt loads. VT HEVC decoder causes
+# "output image buffer is null", "hardware accelerator failed", OS freezes.
+# Software decode is slower but stable for DJI Air 2S (HEVC) videos.
+os.environ.setdefault("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", "")
 
 from PyQt6.QtWidgets import QApplication
 

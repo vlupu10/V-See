@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Dict
 
 from PIL import Image
+
+from photo_viewer.services.ffmpeg_paths import get_ffmpeg_paths
 from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QImage, QPainter, QPen, QPixmap
 
@@ -114,15 +116,20 @@ class ThumbnailService(QObject):
             return self._build_video_icon(path)
         return self._build_image_icon(path)
 
+    def _get_ffmpeg_paths(self) -> tuple[str, str]:
+        """Resolve ffmpeg/ffprobe paths (bundled when frozen, else from PATH)."""
+        return get_ffmpeg_paths()
+
     def _get_video_thumbnail_offset_seconds(self, path: Path) -> float:
         """
         Pick a good position for video thumbnails.
         Skip the first ~10% of the video (often black/intro) but cap at 2 seconds.
         Falls back to 1 second if ffprobe fails.
         """
+        _, ffprobe = self._get_ffmpeg_paths()
         try:
             result = subprocess.run(
-                ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+                [ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -144,10 +151,12 @@ class ThumbnailService(QObject):
         Uses -map 0:v -map -0:V to select only attached-pic streams
         (DJI, GoPro, phones, etc. embed thumbnails this way).
         """
+        ffmpeg, _ = self._get_ffmpeg_paths()
         try:
             result = subprocess.run(
                 [
-                    "ffmpeg",
+                    ffmpeg,
+                    "-hwaccel", "none",
                     "-y",
                     "-i", str(path),
                     "-map", "0:v",
@@ -173,20 +182,23 @@ class ThumbnailService(QObject):
 
     def _extract_frame_at_offset(self, path: Path, offset_seconds: float) -> QIcon | None:
         """Extract a frame at the given time offset and build icon."""
+        ffmpeg, _ = self._get_ffmpeg_paths()
         try:
             result = subprocess.run(
                 [
-                    "ffmpeg",
+                    ffmpeg,
+                    "-hwaccel", "none",
                     "-y",
                     "-ss", str(offset_seconds),
                     "-i", str(path),
+                    "-vf", "scale=320:-1",
                     "-vframes", "1",
                     "-f", "image2pipe",
                     "-vcodec", "png",
                     "-",
                 ],
                 capture_output=True,
-                timeout=10,
+                timeout=30,
                 check=False,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -194,7 +206,7 @@ class ThumbnailService(QObject):
         if result.returncode != 0 or not result.stdout:
             return None
         try:
-            img = Image.open(io.BytesIO(result.stdout))
+            img = Image.open(io.BytesIO(result.stdout)).convert("RGBA")
             return self._pil_to_icon(img)
         except Exception:
             return None

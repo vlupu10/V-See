@@ -1,10 +1,12 @@
 # PyInstaller spec for V-See. Run from project root: pyinstaller v-see.spec
 # Build on each target OS/arch (macOS M1, Windows x64, Linux ARM/x64) to get that install kit.
 # Result: macOS -> V-See.app (double-clickable); Windows/Linux -> dist/V-See/ with executable.
-# Requires mp3-player[qt] in the build env for music support. Run scripts/build-and-zip.sh
-# (macOS/Linux) or scripts/build-and-zip.bat (Windows) to install deps and build.
+# Requires: mp3-player[qt] for music (run build script), PyQt6-Multimedia for video playback,
+# ffmpeg on PATH for video thumbnails (optional; environment.yml includes it). Run
+# scripts/build-and-zip.sh (macOS/Linux) or scripts/build-and-zip.bat (Windows).
 
 import os
+import shutil
 import sys
 
 block_cipher = None
@@ -16,10 +18,17 @@ _pathex = ["src"]
 if os.path.isdir(_vio_python):
     _pathex.append(_vio_python)
 
+# Bundle ffmpeg and ffprobe for video thumbnails (required when app is launched from Finder)
+_binaries = []
+for name in ("ffmpeg", "ffprobe"):
+    path = shutil.which(name)
+    if path:
+        _binaries.append((path, "."))
+
 a = Analysis(
     ['main.py'],
     pathex=_pathex,
-    binaries=[],
+    binaries=_binaries,
     datas=[],
     hiddenimports=[
         'PyQt6.QtCore',
@@ -40,6 +49,13 @@ a = Analysis(
     cipher=block_cipher,
     noarchive=False,
 )
+
+# On macOS, exclude Qt's FFmpeg multimedia plugin so Qt uses AVFoundation instead.
+# The FFmpeg backend causes system-wide freezes when playing HEVC (e.g. DJI Air 2S).
+# AVFoundation provides stable, hardware-accelerated HEVC playback.
+if sys.platform == 'darwin':
+    from PyInstaller.building.datastruct import TOC
+    a.binaries = TOC([x for x in a.binaries if 'libffmpegmediaplugin' not in x[0]])
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 

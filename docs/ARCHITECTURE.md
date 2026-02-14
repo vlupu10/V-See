@@ -34,7 +34,7 @@ When the app launches, the main window shows **Manage** mode with a resizable th
 - **Center pane — Thumbnail grid**
   - Implemented by the **`ThumbnailGridWidget`** component (`photo_viewer.components.thumbnail_grid`).
   - Displays image and video files (jpg, png, mp4, mov, etc.) from the currently selected folder in icon mode.
-  - Thumbnails are generated **asynchronously** by `ThumbnailService`; images use Pillow, videos use ffmpeg to extract the first frame. Each thumbnail is drawn with a light frame for separation.
+  - Thumbnails are generated **asynchronously** by `ThumbnailService`. Images use Pillow. For videos: prefers the **embedded thumbnail** (attached pic) when present (e.g. DJI, GoPro); otherwise extracts a frame at ~10% into the video via ffmpeg/ffprobe. Each thumbnail is drawn with a light frame for separation.
 
 - **Left pane (Music section) — Playable files + MP3 player**
   - Below the Music folder tree: a vertical list of audio files (mp3, wav, m4a, aac, ogg, flac) in the selected folder, by filename without extension.
@@ -70,7 +70,7 @@ Backend logic that must not block the GUI thread. No Qt widgets; they expose sig
 
 | Service | Purpose |
 |---------|---------|
-| **ThumbnailService** | Generates scaled, framed thumbnails for image and video files on a thread pool. Images use Pillow; videos use ffmpeg to extract the first frame. Caches results and emits `thumbnail_ready(path, QIcon)`. Used by `ThumbnailGridWidget`. |
+| **ThumbnailService** | Generates scaled, framed thumbnails on a thread pool. Images: Pillow. Videos: (1) embedded thumbnail (attached pic) via ffmpeg when present; (2) fallback to frame at ~10% of duration via ffmpeg/ffprobe. Requires ffmpeg for video thumbnails. Caches results, emits `thumbnail_ready(path, QIcon)`. |
 | **Persistence** (`persistence.py`) | Stores application state in SQLite. Keys: **last_folder**, **last_music_folder**, **main_window_geometry**, **viewer_window_geometry**, **slideshow_interval_seconds**, **slideshow_music**, **slideshow_video_duration** (5_seconds | full). See §5 for the full API. |
 
 Future services will include: filesystem browser (if the tree is moved out of MainWindow), metadata/EXIF extraction, and pre-fetching for View mode.
@@ -89,7 +89,7 @@ Application-wide settings and path constants (e.g. project root, `docs/`, `tmp/`
 - Creates a **ThumbnailService** instance and a **ThumbnailGridWidget** (center), passing the service into the component. On Photos folder selection, it calls `thumbnail_grid.load_folder(folder_path)`.
 - Connects `ThumbnailGridWidget.selection_changed` to update the preview pane; connects `activated(paths, index)` to open an **ImageViewerWindow** with that image list, index, and the selected Music folder path.
 - Provides `start_slideshow_music_if_configured()` and `stop_slideshow_music()` for the viewer to auto-start/stop music when slideshow turns on/off. Calls `stop_slideshow_music()` in `closeEvent` so music stops when the main window is closed.
-- Builds the **preview pane** (bottom-right) with a `QLabel` that displays a scaled image preview for the currently selected file. EXIF/metadata display is still to be added.
+- Builds the **preview pane** (bottom-right) with a `QStackedWidget`: image preview (QLabel) or video playback (QVideoWidget). Selecting a video plays it in the preview until another item is selected. EXIF/metadata display is still to be added.
 
 No file-list or thumbnail logic remains inside MainWindow; the center pane is fully owned by the ThumbnailGridWidget component. On startup, MainWindow restores **last_folder**, **last_music_folder**, and **main_window_geometry** from persistence. If persisted paths are invalid (e.g. disconnected external drive), it falls back to the tree root and resets slideshow music to "No music". The folder trees use `QTreeView.setEditTriggers(NoEditTriggers)` so double-click opens the viewer instead of renaming.
 
@@ -108,10 +108,11 @@ Application state is persisted in a **SQLite** database so that preferences and 
   - **`viewer_window_geometry`** — Display (viewer) window size and position. Restored when a viewer window is opened; saved when that window is closed.
   - **`slideshow_interval_seconds`** — Number of seconds between slides when slideshow is on (default 3, clamped 1–3600). Read when the viewer window is created; can be updated later via "Configure Slideshow".
   - **`slideshow_music`** — Music choice: "No music", "All songs in the selected music folder", or a song name (start from that song). Persisted and used for auto-start when slideshow runs.
+  - **`slideshow_video_duration`** — Video playback in slideshow: `"5_seconds"` (default) or `"full"`. Configurable via Configure Slideshow dialog.
 - **Invalid paths:** If persisted folders no longer exist (deleted or on a disconnected external drive), the app falls back to the tree root and resets the slideshow music dropdown to "No music" to avoid crashes.
 - **Possible future keys:** loop on/off, shuffle, recent folders, splitter positions.
 
-The persistence API lives in `photo_viewer.services.persistence`: `get_last_folder` / `set_last_folder`, `get_last_music_folder` / `set_last_music_folder`, `get_main_window_geometry` / `set_main_window_geometry`, `get_viewer_window_geometry` / `set_viewer_window_geometry`, `get_slideshow_interval_seconds` / `set_slideshow_interval_seconds`, `get_slideshow_music` / `set_slideshow_music`. New keys can be added with similar get/set helpers without changing the schema.
+The persistence API lives in `photo_viewer.services.persistence`: `get_last_folder` / `set_last_folder`, `get_last_music_folder` / `set_last_music_folder`, `get_main_window_geometry` / `set_main_window_geometry`, `get_viewer_window_geometry` / `set_viewer_window_geometry`, `get_slideshow_interval_seconds` / `set_slideshow_interval_seconds`, `get_slideshow_music` / `set_slideshow_music`, `get_slideshow_video_duration` / `set_slideshow_video_duration`. New keys can be added with similar get/set helpers without changing the schema.
 
 ---
 
@@ -138,7 +139,7 @@ Persisted folder paths (photos and music) may become invalid if the user deletes
 Project-photo-viewer/
 ├── main.py                 # Entry point; adds src to sys.path, launches QApplication
 ├── run.sh                  # Launcher: requires conda, activates env "v-see", runs main.py
-├── environment.yml         # Conda env "v-see" (Python, Pillow, PyQt6 via pip)
+├── environment.yml         # Conda env "v-see" (Python, Pillow, PyQt6, ffmpeg, PyQt6-Multimedia)
 ├── requirements.txt       # Pip deps (for venv or conda pip section)
 ├── docs/
 │   └── ARCHITECTURE.md     # This document
@@ -153,9 +154,10 @@ Project-photo-viewer/
     │   └── slideshow_config_dialog.py  # SlideshowConfigDialog
     ├── services/
     │   ├── __init__.py
-    │   ├── persistence.py  # SQLite app state (§5)
-    │   ├── thumbnails.py   # ThumbnailService
-    │   └── audio.py        # Re-exports mp3-player for playback
+    │   ├── persistence.py   # SQLite app state (§5)
+    │   ├── thumbnails.py    # ThumbnailService (images + videos)
+    │   ├── display_sleep.py # Prevent display sleep during slideshow
+    │   └── audio.py         # Re-exports mp3-player for playback
     └── config/
         ├── __init__.py
         └── settings.py    # Paths and constants
