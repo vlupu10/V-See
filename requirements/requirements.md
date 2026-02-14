@@ -87,6 +87,8 @@ Basic Settings (image_105.png):
 
 Set slide duration (e.g., 3 seconds, 5 seconds).
 
+Background music (implemented): Select a music folder independently from the photos folder; choose "No music", "All songs", or start from a specific song. Music auto-starts when slideshow runs. Music stops when slideshow stops, when the viewer closes, or when the main window closes. MP3 player in the main window includes transport controls and volume slider.
+
 Background color selection (usually black).
 
 Transitions: For V1, implement at least "None" (Cut) and "Fade". (Complex 3D transitions like "Cube" are lower priority).

@@ -95,17 +95,27 @@ python main.py
 
 **Note:** The `run.sh` script is for Unix/macOS. On Windows, use `python main.py` directly.
 
-### 7. Verify it works
+### 7. (Optional) Install music playback for slideshow
+
+For background music during slideshow, install the mp3-player package with the Qt widget. From the Project-photo-viewer directory:
+
+```powershell
+pip install -e "..\vio-python[qt]"
+```
+
+(Adjust the path if `vio-python` is not a sibling folder. Requires [ffmpeg](https://ffmpeg.org/) on Windows.)
+
+### 8. Verify it works
 
 - The main window should show the folder tree, thumbnail grid, and preview pane.
 - Double-clicking an image should open the viewer window.
-- The slideshow button and Configure Slideshow should work.
+- The slideshow button and Configure Slideshow should work. With `mp3-player[qt]` installed, the left panel shows Photos and Music folder trees; music can be selected and auto-starts with the slideshow.
 
 ---
 
 ## Phase 3: Create a Windows Build (Installer / Distributable)
 
-### 8. Install PyInstaller
+### 9. Install PyInstaller
 
 With the `v-see` environment activated:
 
@@ -113,7 +123,7 @@ With the `v-see` environment activated:
 pip install pyinstaller
 ```
 
-### 9. Build the application
+### 10. Build the application
 
 From the project root (same folder as `main.py` and `v-see.spec`):
 
@@ -121,14 +131,14 @@ From the project root (same folder as `main.py` and `v-see.spec`):
 pyinstaller v-see.spec --noconfirm
 ```
 
-### 10. Test the built application
+### 11. Test the built application
 
 - Navigate to `dist\V-See\`
 - Double-click **V-See.exe**
 
 The first run creates `config\state.db` next to the exe. The app should behave the same as when run from source.
 
-### 11. Distribution options
+### 12. Distribution options
 
 From `docs/WINDOWS-DISTRIBUTION.md`:
 
@@ -151,10 +161,11 @@ Use the launcher `.bat` from `packaging/Run V-See.bat` when creating the zip for
 | 3 | `conda env create -f environment.yml` |
 | 4 | `conda activate v-see` |
 | 5 | `python main.py` (run from source) |
-| 6 | `pip install pyinstaller` |
-| 7 | `pyinstaller v-see.spec --noconfirm` |
-| 8 | Test `dist\V-See\V-See.exe` |
-| 9 | Package for distribution (zip / single exe / SFX installer) |
+| 6 | *(Optional)* `pip install -e "..\vio-python[qt]"` for slideshow music |
+| 7 | `pip install pyinstaller` |
+| 8 | `pyinstaller v-see.spec --noconfirm` |
+| 9 | Test `dist\V-See\V-See.exe` |
+| 10 | Package for distribution (zip / single exe / SFX installer) |
 
 ---
 

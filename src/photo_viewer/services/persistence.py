@@ -18,9 +18,11 @@ from pathlib import Path
 
 # Keys in app_state table.
 LAST_FOLDER_KEY = "last_folder"
+LAST_MUSIC_FOLDER_KEY = "last_music_folder"
 MAIN_WINDOW_GEOMETRY_KEY = "main_window_geometry"
 VIEWER_WINDOW_GEOMETRY_KEY = "viewer_window_geometry"
 SLIDESHOW_INTERVAL_SECONDS_KEY = "slideshow_interval_seconds"
+SLIDESHOW_MUSIC_KEY = "slideshow_music"
 
 DEFAULT_SLIDESHOW_INTERVAL_SECONDS = 3
 
@@ -138,6 +140,16 @@ def set_last_folder(folder_path: str) -> None:
     _set_value(LAST_FOLDER_KEY, folder_path)
 
 
+def get_last_music_folder() -> str | None:
+    """Return the last selected music folder path, or None if none was stored."""
+    return _get_value(LAST_MUSIC_FOLDER_KEY)
+
+
+def set_last_music_folder(folder_path: str) -> None:
+    """Persist the given path as the last selected music folder."""
+    _set_value(LAST_MUSIC_FOLDER_KEY, folder_path)
+
+
 def get_main_window_geometry() -> str | None:
     """Return the last main window geometry (Qt base64), or None."""
     return _get_value(MAIN_WINDOW_GEOMETRY_KEY)
@@ -173,3 +185,14 @@ def get_slideshow_interval_seconds() -> int:
 def set_slideshow_interval_seconds(seconds: int) -> None:
     """Persist the slideshow interval in seconds (1–3600)."""
     _set_value(SLIDESHOW_INTERVAL_SECONDS_KEY, str(max(1, min(seconds, 3600))))
+
+
+def get_slideshow_music() -> str:
+    """Return the slideshow music choice: 'No music', 'All songs in the selected music folder', or a song name (start from)."""
+    raw = _get_value(SLIDESHOW_MUSIC_KEY)
+    return raw if raw is not None else "No music"
+
+
+def set_slideshow_music(display_name: str) -> None:
+    """Persist the slideshow music choice."""
+    _set_value(SLIDESHOW_MUSIC_KEY, display_name)
