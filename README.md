@@ -1,8 +1,14 @@
 ## V-See
 
-A high-performance desktop photo viewer written in Python using PyQt6.
-The design aims to closely follow the classic ACDSee "Manage" / "View" / "Slideshow" workflow,
-with a strong focus on instant responsiveness and lazy loading.
+A high-performance desktop photo viewer written in Python using PyQt6. Browse photos, view full-screen, run slideshows with optional background music—with instant responsiveness and lazy loading.
+
+### About
+
+V-See follows the classic ACDSee-style workflow: **Manage** (browse folders and thumbnails), **View** (single-image full-screen), and **Slideshow** (auto-advance with optional music). It stays fast by loading only what you need and avoiding large database scans.
+
+### Downloads
+
+Pre-built releases (no Python required): [Releases](https://github.com/vlupu10/V-See/releases) — download `V-See-macOS.zip` or `V-See-Windows.zip`, extract, and run.
 
 ### How to run: developer vs end user
 
@@ -42,5 +48,5 @@ Alternatively, use a venv: `python3 -m venv .venv`, `source .venv/bin/activate`,
 - **Persistence:** SQLite store in `<app folder>/config/state.db` for last photos folder, last music folder, window geometries, slideshow interval, and slideshow music choice (travels with the app).
 - **Robustness:** Invalid or disconnected folder paths (e.g. external drive unplugged) fall back to the tree root; slideshow music resets to "No music" to avoid crashes.
 
-See `docs/ARCHITECTURE.md` for design, `docs/DISTRIBUTION.md` for building install kits (macOS, Windows, Linux), and `requirements/requirements.md` for full product requirements.
+See `docs/ARCHITECTURE.md` for design, `docs/DISTRIBUTION.md` for building install kits (macOS, Windows, Linux) and creating releases, and `CONTRIBUTING.md` for how to contribute.
 
