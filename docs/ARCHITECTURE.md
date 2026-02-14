@@ -15,7 +15,7 @@ The application has three main modes of operation:
 |-----------|-----------|-------------|
 | **Manage** | Implemented | Default view at startup. Three-pane browser: folder tree, thumbnail grid, preview/metadata. Double-click an image to open the Display (View) window. |
 | **View**   | Implemented | Display window: single-image viewer with Prev/Next (wrap-around). Opened by double-clicking an image in Manage. Window geometry and last folder are persisted. |
-| **Slideshow** | Partial | From the Display window: Slideshow ON/OFF (timer advances every N seconds). "Configure Slideshow" opens a dialog to set interval (1–3600 s) and music (No music, All songs, or start-from song). Music auto-starts when slideshow runs if configured. Loop, shuffle, transitions are planned. |
+| **Slideshow** | Partial | From the Display window: Slideshow ON/OFF (timer advances every N seconds for images; videos play for 5 s or full length per config). "Configure Slideshow" sets interval, music, and video duration (first 5 seconds or full video). Music auto-starts when slideshow runs if configured. Loop, shuffle, transitions are planned. |
 
 ---
 
@@ -33,8 +33,8 @@ When the app launches, the main window shows **Manage** mode with a resizable th
 
 - **Center pane — Thumbnail grid**
   - Implemented by the **`ThumbnailGridWidget`** component (`photo_viewer.components.thumbnail_grid`).
-  - Displays image files from the currently selected folder in icon mode (grid of thumbnails with filenames).
-  - Thumbnails are generated **asynchronously** by `ThumbnailService`; icons appear as they complete. Each thumbnail is drawn with a light frame for separation.
+  - Displays image and video files (jpg, png, mp4, mov, etc.) from the currently selected folder in icon mode.
+  - Thumbnails are generated **asynchronously** by `ThumbnailService`; images use Pillow, videos use ffmpeg to extract the first frame. Each thumbnail is drawn with a light frame for separation.
 
 - **Left pane (Music section) — Playable files + MP3 player**
   - Below the Music folder tree: a vertical list of audio files (mp3, wav, m4a, aac, ogg, flac) in the selected folder, by filename without extension.
@@ -43,7 +43,8 @@ When the app launches, the main window shows **Manage** mode with a resizable th
 - **Right/bottom pane — Preview / Metadata**
   - Implemented preview of the **currently selected thumbnail**.
   - When a folder is loaded, the first thumbnail is auto-selected; selecting a different thumbnail updates the preview.
-  - The preview pane currently shows a scaled version of the image; EXIF and additional metadata will be added beneath it in a later iteration.
+  - **Images:** Shows a scaled version of the image.
+  - **Videos:** Plays the selected video in the preview pane; playback continues until another thumbnail is selected.
 
 ---
 
@@ -59,7 +60,7 @@ Reusable Qt widgets and views. Naming follows the same idea as “components” 
 |-----------|---------|
 | **ThumbnailGridWidget** | Center pane in Manage mode. Grid of image thumbnails for the selected folder; uses `ThumbnailService` and `load_folder(path)`. Emits `selection_changed(path_str)` and `activated(paths, index)` (double-click). |
 | **ImageViewerWindow** | Display (View) window: shows one image, Prev/Next buttons, Slideshow ON/OFF, Stop music, Configure Slideshow. Restores/saves window geometry and uses persisted slideshow interval. Music is controlled from the main window; auto-starts when slideshow runs if configured; Stop music button and window close trigger music stop. |
-| **SlideshowConfigDialog** | Modal dialog for slideshow settings: interval in seconds (QSpinBox 1–3600), and music selection (QComboBox). Music options: "No music", "All songs in the selected music folder", or individual song names (start from that song). On OK, saves via persistence; viewer applies new interval if slideshow is running. |
+| **SlideshowConfigDialog** | Modal dialog for slideshow settings: interval (QSpinBox 1–3600 s), music (QComboBox), and video duration (QRadioButton: "Display first 5 seconds of video" or "Display full video"). All persisted; viewer applies new settings if slideshow is running. |
 
 Future components: folder tree widget (extracted from MainWindow), zoom/pan in viewer, more slideshow options in the config dialog.
 
@@ -69,8 +70,8 @@ Backend logic that must not block the GUI thread. No Qt widgets; they expose sig
 
 | Service | Purpose |
 |---------|---------|
-| **ThumbnailService** | Generates scaled, framed thumbnails for image files on a thread pool. Caches results in memory and emits `thumbnail_ready(path, QIcon)` so components can update item icons. Used by `ThumbnailGridWidget`. |
-| **Persistence** (`persistence.py`) | Stores application state in SQLite so it survives restarts. Stores: **last_folder**, **last_music_folder**, **main_window_geometry**, **viewer_window_geometry**, **slideshow_interval_seconds**, **slideshow_music**. See §5 for the full API. |
+| **ThumbnailService** | Generates scaled, framed thumbnails for image and video files on a thread pool. Images use Pillow; videos use ffmpeg to extract the first frame. Caches results and emits `thumbnail_ready(path, QIcon)`. Used by `ThumbnailGridWidget`. |
+| **Persistence** (`persistence.py`) | Stores application state in SQLite. Keys: **last_folder**, **last_music_folder**, **main_window_geometry**, **viewer_window_geometry**, **slideshow_interval_seconds**, **slideshow_music**, **slideshow_video_duration** (5_seconds | full). See §5 for the full API. |
 
 Future services will include: filesystem browser (if the tree is moved out of MainWindow), metadata/EXIF extraction, and pre-fetching for View mode.
 

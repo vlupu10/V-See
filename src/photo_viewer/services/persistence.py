@@ -23,8 +23,11 @@ MAIN_WINDOW_GEOMETRY_KEY = "main_window_geometry"
 VIEWER_WINDOW_GEOMETRY_KEY = "viewer_window_geometry"
 SLIDESHOW_INTERVAL_SECONDS_KEY = "slideshow_interval_seconds"
 SLIDESHOW_MUSIC_KEY = "slideshow_music"
+SLIDESHOW_VIDEO_DURATION_KEY = "slideshow_video_duration"
 
 DEFAULT_SLIDESHOW_INTERVAL_SECONDS = 3
+SLIDESHOW_VIDEO_DURATION_5_SECONDS = "5_seconds"
+SLIDESHOW_VIDEO_DURATION_FULL = "full"
 
 # Subfolder under the application directory where state is stored (recommended location).
 CONFIG_SUBDIR = "config"
@@ -196,3 +199,17 @@ def get_slideshow_music() -> str:
 def set_slideshow_music(display_name: str) -> None:
     """Persist the slideshow music choice."""
     _set_value(SLIDESHOW_MUSIC_KEY, display_name)
+
+
+def get_slideshow_video_duration() -> str:
+    """Return slideshow video duration: '5_seconds' or 'full'. Default: '5_seconds'."""
+    raw = _get_value(SLIDESHOW_VIDEO_DURATION_KEY)
+    if raw in (SLIDESHOW_VIDEO_DURATION_5_SECONDS, SLIDESHOW_VIDEO_DURATION_FULL):
+        return raw
+    return SLIDESHOW_VIDEO_DURATION_5_SECONDS
+
+
+def set_slideshow_video_duration(value: str) -> None:
+    """Persist slideshow video duration: '5_seconds' or 'full'."""
+    if value in (SLIDESHOW_VIDEO_DURATION_5_SECONDS, SLIDESHOW_VIDEO_DURATION_FULL):
+        _set_value(SLIDESHOW_VIDEO_DURATION_KEY, value)

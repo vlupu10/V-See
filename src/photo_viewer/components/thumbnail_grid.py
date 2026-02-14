@@ -27,8 +27,11 @@ from PyQt6.QtWidgets import (
 from photo_viewer.services.thumbnails import ThumbnailService
 
 
-# Supported image extensions for the file list (lowercase).
+# Supported media extensions for the file list (lowercase).
+# Images: jpg, png, etc. Videos: mp4 for thumbnails and playback.
 IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff"})
+VIDEO_EXTENSIONS = frozenset({".mp4", ".mov", ".m4v", ".webm"})
+MEDIA_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
 
 
 class ThumbnailGridWidget(QFrame):
@@ -142,7 +145,7 @@ class ThumbnailGridWidget(QFrame):
             return
 
         for path in entries:
-            if path.suffix.lower() not in IMAGE_EXTENSIONS:
+            if path.suffix.lower() not in MEDIA_EXTENSIONS:
                 continue
 
             path_str = str(path)

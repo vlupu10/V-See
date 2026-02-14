@@ -25,6 +25,8 @@ a = Analysis(
         'PyQt6.QtCore',
         'PyQt6.QtGui',
         'PyQt6.QtWidgets',
+        'PyQt6.QtMultimedia',
+        'PyQt6.QtMultimediaWidgets',
         'mp3_player',
         'mp3_player.mp3_player',
         'mp3_player.qt_player_widget',

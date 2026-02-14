@@ -22,8 +22,8 @@ HELP_HTML = """
 <ul>
 <li><b>Photos folder</b> (top left) – Browse to select the folder of images to display.</li>
 <li><b>Music folder</b> (bottom left) – Browse to select a folder of audio files for slideshow music.</li>
-<li><b>Thumbnail grid</b> (center) – Shows images in the selected photos folder. Single-click to preview; double-click to open the viewer.</li>
-<li><b>Preview pane</b> (right) – Shows a preview of the selected thumbnail.</li>
+<li><b>Thumbnail grid</b> (center) – Shows images and videos (MP4, MOV, etc.) in the selected folder. Single-click to preview; double-click to open the viewer. Selecting a video plays it in the preview pane.</li>
+<li><b>Preview pane</b> (right) – Shows a preview of the selected image, or plays the selected video until another thumbnail is chosen.</li>
 <li><b>MP3 player</b> – Transport controls and volume slider. Music plays when you press Play or when the slideshow runs (if configured).</li>
 </ul>
 
@@ -33,12 +33,13 @@ HELP_HTML = """
 <li><b>Previous / Next</b> – Navigate between images in the folder.</li>
 <li><b>Slideshow ON/OFF</b> – Start or stop automatic slideshow.</li>
 <li><b>Stop music</b> – Stop background music.</li>
-<li><b>Configure Slideshow</b> – Set interval (seconds between slides) and music: No music, All songs, or start from a specific song.</li>
+<li><b>Configure Slideshow</b> – Set interval (seconds between slides), music (No music, All songs, or start from a song), and video duration: first 5 seconds or full video.</li>
 <li><b>Full Screen</b> – Toggle full screen. Press <b>Esc</b> to exit.</li>
 </ul>
 
 <h3>Tips</h3>
 <ul>
+<li>Videos in the slideshow play automatically: either the first 5 seconds or the full video, depending on Configure Slideshow.</li>
 <li>Music auto-starts when the slideshow starts (if you chose music in Configure Slideshow).</li>
 <li>Music stops when the slideshow stops, when you close the viewer, or when you close the main window.</li>
 <li>Last folders and window positions are remembered on next run.</li>

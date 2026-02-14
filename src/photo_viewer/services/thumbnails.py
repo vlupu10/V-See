@@ -12,6 +12,8 @@ Date: 2025-02-10
 
 from __future__ import annotations
 
+import io
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Dict
@@ -99,50 +101,85 @@ class ThumbnailService(QObject):
 
     def _build_icon(self, path: Path) -> QIcon | None:
         """
-        Decode the image using Pillow and turn it into a QIcon.
+        Decode the image or video frame and turn it into a QIcon.
 
+        For images: uses Pillow. For videos (.mp4): extracts first frame via ffmpeg.
         Returns None if the file cannot be opened or decoded.
         """
         if not path.is_file():
             return None
 
-        with Image.open(path) as img:
-            # Use a copy of the image resized in-place to the thumbnail size
-            img = img.convert("RGBA")
-            img.thumbnail((self._target_size, self._target_size))
+        suffix = path.suffix.lower()
+        if suffix in (".mp4", ".mov", ".m4v", ".webm"):
+            return self._build_video_icon(path)
+        return self._build_image_icon(path)
 
-            width, height = img.size
-            data = img.tobytes("raw", "RGBA")
-
-            qimage = QImage(
-                data,
-                width,
-                height,
-                QImage.Format.Format_RGBA8888,
+    def _build_video_icon(self, path: Path) -> QIcon | None:
+        """Extract first frame from video with ffmpeg and build icon."""
+        try:
+            result = subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-ss", "0",
+                    "-i", str(path),
+                    "-vframes", "1",
+                    "-f", "image2pipe",
+                    "-vcodec", "png",
+                    "-",
+                ],
+                capture_output=True,
+                timeout=10,
+                check=False,
             )
-            base_pixmap = QPixmap.fromImage(qimage)
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return None
+        if result.returncode != 0 or not result.stdout:
+            return None
+        try:
+            img = Image.open(io.BytesIO(result.stdout))
+            return self._pil_to_icon(img)
+        except Exception:
+            return None
 
-            # Add a subtle frame around the thumbnail to visually separate it
-            # from the background and neighbouring thumbnails.
-            margin = 4
-            framed_width = width + margin * 2
-            framed_height = height + margin * 2
+    def _build_image_icon(self, path: Path) -> QIcon | None:
+        """Decode image with Pillow and build icon."""
+        try:
+            with Image.open(path) as img:
+                return self._pil_to_icon(img.convert("RGBA"))
+        except Exception:
+            return None
 
-            framed = QPixmap(framed_width, framed_height)
-            framed.fill(Qt.GlobalColor.transparent)
+    def _pil_to_icon(self, img: Image.Image) -> QIcon:
+        """Convert PIL Image to QIcon with frame."""
+        img.thumbnail((self._target_size, self._target_size))
+        width, height = img.size
+        data = img.tobytes("raw", "RGBA")
 
-            painter = QPainter(framed)
-            try:
-                # Draw the image centered inside the frame.
-                painter.drawPixmap(margin, margin, base_pixmap)
+        qimage = QImage(
+            data,
+            width,
+            height,
+            QImage.Format.Format_RGBA8888,
+        )
+        base_pixmap = QPixmap.fromImage(qimage)
 
-                # Draw a light border.
-                pen = QPen(QColor(220, 220, 220))
-                pen.setWidth(1)
-                painter.setPen(pen)
-                painter.drawRect(0, 0, framed_width - 1, framed_height - 1)
-            finally:
-                painter.end()
+        margin = 4
+        framed_width = width + margin * 2
+        framed_height = height + margin * 2
 
-            return QIcon(framed)
+        framed = QPixmap(framed_width, framed_height)
+        framed.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(framed)
+        try:
+            painter.drawPixmap(margin, margin, base_pixmap)
+            pen = QPen(QColor(220, 220, 220))
+            pen.setWidth(1)
+            painter.setPen(pen)
+            painter.drawRect(0, 0, framed_width - 1, framed_height - 1)
+        finally:
+            painter.end()
+
+        return QIcon(framed)
 
