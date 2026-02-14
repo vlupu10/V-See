@@ -19,8 +19,9 @@ fi
 
 conda activate v-see
 
-# Ensure PyInstaller and mp3-player (for music) are installed
+# Ensure PyInstaller, mp3-player (music), and deps for video support
 pip install -q pyinstaller
+pip install -q PyQt6-Multimedia PyQt6-MultimediaWidgets 2>/dev/null || true
 if [[ -d "../vio-python" ]]; then
   echo "Installing mp3-player[qt] for music support..."
   pip install -q -e "../vio-python[qt]" || echo "Warning: mp3-player install failed; build continues without music support"

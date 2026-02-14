@@ -14,10 +14,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
+    QButtonGroup,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QRadioButton,
     QSizePolicy,
     QSpinBox,
     QWidget,
@@ -26,8 +28,12 @@ from PyQt6.QtWidgets import (
 from photo_viewer.services.persistence import (
     get_slideshow_interval_seconds,
     get_slideshow_music,
+    get_slideshow_video_duration,
     set_slideshow_interval_seconds,
     set_slideshow_music,
+    set_slideshow_video_duration,
+    SLIDESHOW_VIDEO_DURATION_5_SECONDS,
+    SLIDESHOW_VIDEO_DURATION_FULL,
 )
 
 try:
@@ -93,9 +99,22 @@ class SlideshowConfigDialog(QDialog):
                 self._combo_music.addItem(name)
         self._set_combo_to_saved()
 
+        # Video duration in slideshow: 5 seconds or full video
+        self._radio_5_seconds = QRadioButton("Display first 5 seconds of video", self)
+        self._radio_full_video = QRadioButton("Display full video", self)
+        self._video_group = QButtonGroup(self)
+        self._video_group.addButton(self._radio_5_seconds)
+        self._video_group.addButton(self._radio_full_video)
+        if get_slideshow_video_duration() == SLIDESHOW_VIDEO_DURATION_FULL:
+            self._radio_full_video.setChecked(True)
+        else:
+            self._radio_5_seconds.setChecked(True)
+
         layout = QFormLayout(self)
         layout.addRow("Interval between slides:", self._spin_seconds)
         layout.addRow("Music:", self._combo_music)
+        layout.addRow("Video in slideshow:", self._radio_5_seconds)
+        layout.addRow("", self._radio_full_video)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
@@ -114,7 +133,13 @@ class SlideshowConfigDialog(QDialog):
             self._combo_music.setCurrentIndex(0)
 
     def accept(self) -> None:
-        """Save the chosen interval and music to persistence and close."""
+        """Save the chosen settings to persistence and close."""
         set_slideshow_interval_seconds(self._spin_seconds.value())
         set_slideshow_music(self._combo_music.currentText())
+        duration = (
+            SLIDESHOW_VIDEO_DURATION_FULL
+            if self._radio_full_video.isChecked()
+            else SLIDESHOW_VIDEO_DURATION_5_SECONDS
+        )
+        set_slideshow_video_duration(duration)
         super().accept()

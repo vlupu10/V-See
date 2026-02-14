@@ -17,7 +17,7 @@ Date: 2025-02-10
 import sys
 from pathlib import Path
 
-from PyQt6.QtCore import QByteArray, QEvent, Qt, QTimer
+from PyQt6.QtCore import QByteArray, QEvent, Qt, QTimer, QUrl
 from PyQt6.QtGui import QPixmap, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QFrame,
@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QPushButton,
     QSplitter,
+    QStackedWidget,
     QTreeView,
     QVBoxLayout,
     QWidget,
@@ -50,6 +51,18 @@ except ImportError as e:
 
 # Fallback when neither mp3_player nor services.audio is available (list still populates)
 AUDIO_EXTENSIONS = (".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac")
+
+# Video extensions for preview playback
+VIDEO_EXTENSIONS = frozenset({".mp4", ".mov", ".m4v", ".webm"})
+
+_video_available = False
+try:
+    from PyQt6.QtMultimedia import QMediaPlayer
+    from PyQt6.QtMultimediaWidgets import QVideoWidget
+    _video_available = True
+except ImportError:
+    QMediaPlayer = None  # type: ignore[misc, assignment]
+    QVideoWidget = None  # type: ignore[misc, assignment]
 
 
 def _load_sound_files_fallback(sound_dir: Path) -> dict[str, Path]:
@@ -271,6 +284,7 @@ class MainWindow(QMainWindow):
         music_files_list = QListWidget(music_section)
         music_files_list.setObjectName("musicFileList")
         music_files_list.setMinimumHeight(80)
+        music_files_list.itemDoubleClicked.connect(self._on_music_file_double_clicked)
         self._music_file_list = music_files_list
         music_layout.addWidget(music_files_label)
         music_layout.addWidget(music_files_list)
@@ -460,6 +474,20 @@ class MainWindow(QMainWindow):
         set_last_music_folder(path_str)
         self._update_go_up_button_state()
         self._update_music_file_list()
+
+    def _on_music_file_double_clicked(self, item: QListWidgetItem) -> None:
+        """Double-click on a song: jump to it and start playback immediately."""
+        folder = self._get_selected_music_folder_path()
+        if folder is None or self._mp3_player is None:
+            return
+        song_name = item.text()
+        if not song_name:
+            return
+        try:
+            self._mp3_player.set_playlist_from_folder(folder, start_from_name=song_name)
+            self._mp3_player.start_playback()
+        except (OSError, PermissionError):
+            pass
 
     def _update_music_file_list(self) -> None:
         """Populate the music file list and MP3 player from the selected music folder."""
@@ -661,12 +689,15 @@ class MainWindow(QMainWindow):
         Start music playback if a music folder is selected and the persisted
         dropdown is not "No music". Called by the viewer when slideshow starts.
         Skips if the folder is invalid (e.g. disconnected external drive).
+        If music is already playing, leaves it playing (does not restart).
         """
         folder = self._get_selected_music_folder_path()
         if folder is None or not self._is_path_valid_folder(str(folder)):
             return
         if self._mp3_player is None:
             return
+        if self._mp3_player.is_playing():
+            return  # Already playing; don't restart
         music_choice = get_slideshow_music()
         if music_choice == SlideshowConfigDialog.NO_MUSIC:
             return
@@ -746,8 +777,8 @@ class MainWindow(QMainWindow):
         """
         Create the preview / metadata pane.
 
-        Currently shows a scaled preview of the selected image; EXIF and
-        other metadata will be added underneath in a later iteration.
+        Shows a scaled preview of the selected image, or plays the selected
+        video. Uses QStackedWidget to switch between image and video views.
         """
         frame = QFrame(self)
         frame.setFrameShape(QFrame.Shape.StyledPanel)
@@ -759,6 +790,8 @@ class MainWindow(QMainWindow):
         header = QLabel("Preview / Metadata", frame)
         header.setObjectName("previewHeader")
 
+        self._preview_stacked = QStackedWidget(frame)
+
         image_label = QLabel(frame)
         image_label.setObjectName("previewImage")
         image_label.setAlignment(
@@ -766,12 +799,23 @@ class MainWindow(QMainWindow):
         )
         image_label.setMinimumHeight(200)
         image_label.setText("No image selected.")
-        image_label.installEventFilter(self)  # re-scale image when pane is resized (e.g. splitter)
+        image_label.installEventFilter(self)
 
         self._preview_image_label = image_label
+        self._preview_stacked.addWidget(image_label)
+
+        self._preview_media_player = None
+        self._preview_video_widget = None
+        if _video_available and QVideoWidget is not None and QMediaPlayer is not None:
+            video_widget = QVideoWidget(frame)
+            video_widget.setMinimumHeight(200)
+            self._preview_video_widget = video_widget
+            self._preview_stacked.addWidget(video_widget)
+            self._preview_media_player = QMediaPlayer()
+            self._preview_media_player.setVideoOutput(video_widget)
 
         layout.addWidget(header)
-        layout.addWidget(image_label)
+        layout.addWidget(self._preview_stacked)
 
         return frame
 
@@ -838,38 +882,63 @@ class MainWindow(QMainWindow):
         )
         viewer.show()
 
-    def _update_preview(self, image_path: Path | None) -> None:
-        """Load the given image path into the preview label, scaled to fit available space."""
+    def _update_preview(self, path: Path | None) -> None:
+        """Show the selected image or play the selected video in the preview pane."""
         if self._preview_image_label is None:
             return
 
-        if image_path is None:
+        # Stop any playing video
+        if self._preview_media_player is not None:
+            self._preview_media_player.stop()
+
+        if path is None:
             self._preview_image_path = None
+            self._preview_stacked.setCurrentWidget(self._preview_image_label)
             self._preview_image_label.setText("No image selected.")
             self._preview_image_label.setPixmap(QPixmap())
             return
 
         try:
-            if not image_path.is_file():
+            if not path.is_file():
                 self._preview_image_path = None
+                self._preview_stacked.setCurrentWidget(self._preview_image_label)
                 self._preview_image_label.setText("Selected item is not a file.")
                 self._preview_image_label.setPixmap(QPixmap())
                 return
-            pixmap = QPixmap(str(image_path))
+        except OSError:
+            self._preview_image_path = None
+            self._preview_stacked.setCurrentWidget(self._preview_image_label)
+            self._preview_image_label.setText("Cannot load (device disconnected?).")
+            self._preview_image_label.setPixmap(QPixmap())
+            return
+
+        # Video: play in video widget
+        if path.suffix.lower() in VIDEO_EXTENSIONS and self._preview_media_player is not None:
+            self._preview_image_path = None
+            self._preview_stacked.setCurrentWidget(self._preview_video_widget)
+            self._preview_media_player.setSource(QUrl.fromLocalFile(str(path.resolve())))
+            self._preview_media_player.play()
+            return
+
+        # Image: show scaled pixmap
+        try:
+            pixmap = QPixmap(str(path))
         except (OSError, PermissionError):
             self._preview_image_path = None
-            self._preview_image_label.setText("Cannot load image (device disconnected?).")
+            self._preview_stacked.setCurrentWidget(self._preview_image_label)
+            self._preview_image_label.setText("Cannot load image.")
             self._preview_image_label.setPixmap(QPixmap())
             return
         if pixmap.isNull():
             self._preview_image_path = None
+            self._preview_stacked.setCurrentWidget(self._preview_image_label)
             self._preview_image_label.setText("Cannot load image.")
             self._preview_image_label.setPixmap(QPixmap())
             return
 
-        self._preview_image_path = image_path
+        self._preview_image_path = path
+        self._preview_stacked.setCurrentWidget(self._preview_image_label)
 
-        # Scale to fit the label while preserving aspect ratio (uses current widget size).
         target_size = self._preview_image_label.size()
         if target_size.width() <= 0 or target_size.height() <= 0:
             target_size = pixmap.size()
@@ -893,8 +962,10 @@ class MainWindow(QMainWindow):
         return super().eventFilter(watched, event)
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
-        """Stop music and persist geometry when the window is closed."""
+        """Stop music, stop preview video, and persist geometry when the window is closed."""
         self.stop_slideshow_music()
+        if self._preview_media_player is not None:
+            self._preview_media_player.stop()
         geo = self.saveGeometry()
         if not geo.isEmpty():
             set_main_window_geometry(geo.toBase64().data().decode("ascii"))

@@ -17,8 +17,9 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo Ensuring PyInstaller and mp3-player are installed...
+echo Ensuring PyInstaller, mp3-player, and video support are installed...
 pip install -q pyinstaller
+pip install -q PyQt6-Multimedia PyQt6-MultimediaWidgets
 if exist "..\vio-python" (
   echo Installing mp3-player[qt] for music support...
   pip install -q -e "..\vio-python[qt]"

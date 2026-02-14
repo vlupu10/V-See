@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Sequence
 
-from PyQt6.QtCore import QByteArray, QEvent, Qt, QTimer
+from PyQt6.QtCore import QByteArray, QEvent, Qt, QTimer, QUrl
 from PyQt6.QtGui import QKeySequence, QPixmap, QShortcut
 from PyQt6.QtWidgets import (
     QDialog,
@@ -22,16 +22,30 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMainWindow,
     QPushButton,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from photo_viewer.components.slideshow_config_dialog import SlideshowConfigDialog
+from photo_viewer.components.thumbnail_grid import VIDEO_EXTENSIONS
+from photo_viewer.services.display_sleep import DisplaySleepPreventer
 from photo_viewer.services.persistence import (
     get_slideshow_interval_seconds,
+    get_slideshow_video_duration,
     get_viewer_window_geometry,
     set_viewer_window_geometry,
+    SLIDESHOW_VIDEO_DURATION_FULL,
 )
+
+_video_available = False
+try:
+    from PyQt6.QtMultimedia import QMediaPlayer
+    from PyQt6.QtMultimediaWidgets import QVideoWidget
+    _video_available = True
+except ImportError:
+    QMediaPlayer = None  # type: ignore[misc, assignment]
+    QVideoWidget = None  # type: ignore[misc, assignment]
 
 
 class ImageViewerWindow(QMainWindow):
@@ -87,6 +101,9 @@ class ImageViewerWindow(QMainWindow):
         self._slideshow_interval_ms = get_slideshow_interval_seconds() * 1000
 
         self._slideshow_running = False
+        self._display_sleep_preventer = DisplaySleepPreventer()
+        self._video_slideshow_timer: QTimer | None = None  # Single-shot for 5s video mode
+        self._slideshow_video_media_player = None  # Set when playing video in slideshow
 
         self._image_label: QLabel
         self._filename_label: QLabel
@@ -157,13 +174,25 @@ class ImageViewerWindow(QMainWindow):
         esc_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
         esc_shortcut.activated.connect(self._exit_fullscreen_if_active)
 
-        # Main image area.
+        # Main content: image or video (stacked)
+        self._content_stacked = QStackedWidget(central)
         self._image_label = QLabel(central)
         self._image_label.setAlignment(
             Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
         )
         self._image_label.setMinimumHeight(400)
         self._image_label.setText("No image.")
+        self._content_stacked.addWidget(self._image_label)
+
+        self._viewer_video_widget = None
+        self._viewer_media_player = None
+        if _video_available and QVideoWidget is not None and QMediaPlayer is not None:
+            vw = QVideoWidget(central)
+            vw.setMinimumHeight(400)
+            self._viewer_video_widget = vw
+            self._content_stacked.addWidget(vw)
+            self._viewer_media_player = QMediaPlayer()
+            self._viewer_media_player.setVideoOutput(vw)
 
         self._filename_label = QLabel(central)
         self._filename_label.setAlignment(
@@ -171,7 +200,7 @@ class ImageViewerWindow(QMainWindow):
         )
 
         root_layout.addLayout(controls_layout)
-        root_layout.addWidget(self._image_label, stretch=1)
+        root_layout.addWidget(self._content_stacked, stretch=1)
         root_layout.addWidget(self._filename_label)
 
     # ---------------------------------------------------------- navigation
@@ -203,6 +232,8 @@ class ImageViewerWindow(QMainWindow):
             self._slideshow_running = False
             self._btn_slideshow.setText("Slideshow ON")
             self._stop_slideshow_music()
+            self._display_sleep_preventer.stop()
+            self._stop_slideshow_video()
         else:
             if not self._image_paths:
                 return
@@ -211,6 +242,7 @@ class ImageViewerWindow(QMainWindow):
             self._slideshow_timer.start()
             self._slideshow_running = True
             self._btn_slideshow.setText("Slideshow OFF")
+            self._display_sleep_preventer.start()
             self._start_slideshow_music_if_configured()
 
     def _start_slideshow_music_if_configured(self) -> None:
@@ -226,8 +258,20 @@ class ImageViewerWindow(QMainWindow):
             mw.stop_slideshow_music()
 
     def _on_slideshow_tick(self) -> None:
-        """Timer callback: advance to the next image."""
+        """Timer callback: advance to the next item. Skips when a video is playing (video end advances)."""
+        path = self._image_paths[self._current_index] if self._image_paths else None
+        if path is not None and path.suffix.lower() in VIDEO_EXTENSIONS:
+            if self._viewer_media_player is not None and self._viewer_media_player.playbackState() == self._viewer_media_player.PlaybackState.PlayingState:
+                return  # Video still playing; will advance when it ends
         self.show_next()
+
+    def _stop_slideshow_video(self) -> None:
+        """Stop any video playing for slideshow and clear advance timers."""
+        if self._video_slideshow_timer is not None:
+            self._video_slideshow_timer.stop()
+            self._video_slideshow_timer = None
+        if self._viewer_media_player is not None:
+            self._viewer_media_player.stop()
 
     def _open_slideshow_config(self) -> None:
         """
@@ -268,17 +312,60 @@ class ImageViewerWindow(QMainWindow):
         if event.type() == QEvent.Type.WindowStateChange:
             self._update_fullscreen_button_text()
 
-    # --------------------------------------------------------------- image
+    # --------------------------------------------------------------- image / video
 
     def _update_image(self) -> None:
-        """Load and display the current image."""
+        """Load and display the current image or play the current video."""
+        # Cancel any pending video slideshow advance (user may have navigated)
+        if self._video_slideshow_timer is not None:
+            self._video_slideshow_timer.stop()
+            self._video_slideshow_timer = None
+
         if not self._image_paths:
             self._image_label.setText("No images available.")
             self._image_label.setPixmap(QPixmap())
             self._filename_label.setText("")
+            self._content_stacked.setCurrentWidget(self._image_label)
             return
 
         path = self._image_paths[self._current_index]
+
+        # Video: play in video widget (if supported)
+        if path.suffix.lower() in VIDEO_EXTENSIONS:
+            if self._viewer_media_player is not None:
+                self._content_stacked.setCurrentWidget(self._viewer_video_widget)
+                self._viewer_media_player.stop()
+                self._viewer_media_player.setSource(QUrl.fromLocalFile(str(path.resolve())))
+                self._current_pixmap = None
+                self._filename_label.setText(path.name)
+
+                if self._slideshow_running:
+                    self._slideshow_timer.stop()
+                    self._slideshow_video_media_player = self._viewer_media_player
+                    duration_mode = get_slideshow_video_duration()
+                    if duration_mode == SLIDESHOW_VIDEO_DURATION_5_SECONDS:
+                        self._video_slideshow_timer = QTimer(self)
+                        self._video_slideshow_timer.setSingleShot(True)
+                        self._video_slideshow_timer.timeout.connect(self._on_slideshow_video_finished)
+                        self._video_slideshow_timer.start(5000)
+                    else:
+                        self._viewer_media_player.mediaStatusChanged.connect(
+                            self._on_slideshow_video_media_status
+                        )
+                self._viewer_media_player.play()
+                return
+            self._content_stacked.setCurrentWidget(self._image_label)
+            self._image_label.setText("Video playback requires PyQt6-Multimedia.")
+            self._image_label.setPixmap(QPixmap())
+            self._filename_label.setText(path.name)
+            self._current_pixmap = None
+            return
+
+        # Image: show pixmap
+        self._content_stacked.setCurrentWidget(self._image_label)
+        if self._viewer_media_player is not None:
+            self._viewer_media_player.stop()
+
         try:
             pixmap = QPixmap(str(path))
         except (OSError, PermissionError):
@@ -299,6 +386,28 @@ class ImageViewerWindow(QMainWindow):
         self._apply_scaled_pixmap()
         self._image_label.setText("")
         self._filename_label.setText(path.name)
+
+    def _on_slideshow_video_media_status(self, status) -> None:
+        """When video reaches end in slideshow (full mode), advance to next."""
+        from PyQt6.QtMultimedia import QMediaPlayer
+        if status == QMediaPlayer.MediaStatus.EndOfMedia and self._slideshow_running:
+            if self._viewer_media_player is not None:
+                self._viewer_media_player.mediaStatusChanged.disconnect(
+                    self._on_slideshow_video_media_status
+                )
+            self._on_slideshow_video_finished()
+
+    def _on_slideshow_video_finished(self) -> None:
+        """After video plays (5s or full), advance slideshow and restart timer."""
+        if self._video_slideshow_timer is not None:
+            self._video_slideshow_timer.stop()
+            self._video_slideshow_timer = None
+        if self._viewer_media_player is not None:
+            self._viewer_media_player.stop()
+        self._slideshow_video_media_player = None
+        if self._slideshow_running:
+            self.show_next()
+            self._slideshow_timer.start()
 
     def _apply_scaled_pixmap(self) -> None:
         """
@@ -345,8 +454,12 @@ class ImageViewerWindow(QMainWindow):
         self._apply_scaled_pixmap()
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
-        """Stop slideshow music and persist geometry when the window is closed."""
+        """Stop slideshow music, video, allow display sleep, and persist geometry when the window is closed."""
         self._stop_slideshow_music()
+        self._stop_slideshow_video()
+        self._display_sleep_preventer.stop()
+        if self._viewer_media_player is not None:
+            self._viewer_media_player.stop()
         geo = self.saveGeometry()
         if not geo.isEmpty():
             set_viewer_window_geometry(geo.toBase64().data().decode("ascii"))

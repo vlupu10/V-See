@@ -34,7 +34,7 @@ To start V-See from your Desktop:
 ### System requirements
 
 - Windows 10 or 11 (64-bit)
-- No other software required
+- No other software required. For video thumbnails, [ffmpeg](https://ffmpeg.org/) on PATH improves thumbnails for MP4/MOV files (optional).
 
 ---
 
@@ -105,17 +105,21 @@ pip install -e "..\vio-python[qt]"
 
 (Adjust the path if `vio-python` is not a sibling folder. Requires [ffmpeg](https://ffmpeg.org/) on Windows.)
 
-### 8. Verify it works
+### 8. (Optional) Install ffmpeg for video thumbnails
+
+For video thumbnails (MP4, MOV, etc.), install [ffmpeg](https://ffmpeg.org/) and add it to your PATH. The `environment.yml` includes ffmpeg via conda. Video playback uses PyQt6-Multimedia (in requirements); thumbnails use ffmpeg to extract embedded or frame-based previews.
+
+### 9. Verify it works
 
 - The main window should show the folder tree, thumbnail grid, and preview pane.
-- Double-clicking an image should open the viewer window.
-- The slideshow button and Configure Slideshow should work. With `mp3-player[qt]` installed, the left panel shows Photos and Music folder trees; music can be selected and auto-starts with the slideshow.
+- Double-clicking an image or video should open the viewer window.
+- The slideshow button and Configure Slideshow should work. With `mp3-player[qt]` installed, the left panel shows Photos and Music folder trees; music can be selected and auto-starts with the slideshow. Videos play in the preview pane when selected and in the slideshow when configured.
 
 ---
 
 ## Phase 3: Create a Windows Build (Installer / Distributable)
 
-### 9. Install PyInstaller
+### 10. Install PyInstaller
 
 With the `v-see` environment activated:
 
@@ -123,7 +127,7 @@ With the `v-see` environment activated:
 pip install pyinstaller
 ```
 
-### 10. Build the application
+### 11. Build the application
 
 **Recommended** – from the project root, run the build script (installs mp3-player for music, builds, and creates the zip):
 
@@ -140,14 +144,14 @@ pip install pyinstaller
 pyinstaller v-see.spec --noconfirm
 ```
 
-### 11. Test the built application
+### 12. Test the built application
 
 - Navigate to `dist\V-See\`
 - Double-click **V-See.exe**
 
 The first run creates `config\state.db` next to the exe. The app should behave the same as when run from source.
 
-### 12. Distribution options
+### 13. Distribution options
 
 From `docs/WINDOWS-DISTRIBUTION.md`:
 
@@ -171,10 +175,11 @@ Use the launcher `.bat` from `packaging/Run V-See.bat` when creating the zip for
 | 4 | `conda activate v-see` |
 | 5 | `python main.py` (run from source) |
 | 6 | *(Optional)* `pip install -e "..\vio-python[qt]"` for slideshow music |
-| 7 | `pip install pyinstaller` |
-| 8 | `pyinstaller v-see.spec --noconfirm` |
-| 9 | Test `dist\V-See\V-See.exe` |
-| 10 | Package for distribution (zip / single exe / SFX installer) |
+| 7 | *(Optional)* ffmpeg for video thumbnails (included via environment.yml) |
+| 8 | `pip install pyinstaller` |
+| 9 | `pyinstaller v-see.spec --noconfirm` |
+| 10 | Test `dist\V-See\V-See.exe` |
+| 11 | Package for distribution (zip / single exe / SFX installer) |
 
 ---
 

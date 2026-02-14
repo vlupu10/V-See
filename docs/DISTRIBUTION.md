@@ -4,8 +4,8 @@ This document describes how to build install kits (standalone executables or ins
 
 ## Developer vs end user
 
-- **Developer:** You build the app with PyInstaller. You need conda, Python, PyInstaller, and optionally vio-python (mp3-player) for music support. You run `build-and-zip.sh` or `build-and-zip.bat` to produce the zip.
-- **End user:** Downloads the zip (e.g. V-See-macOS.zip or V-See-Windows.zip), extracts it, and double-clicks the app. No Python, conda, vio-python, or any developer tools required—everything needed to run is bundled in the zip.
+- **Developer:** You build the app with PyInstaller. You need conda, Python, PyInstaller, ffmpeg (for video thumbnails), and optionally vio-python (mp3-player) for music support. Run `build-and-zip.sh` or `build-and-zip.bat` to produce the zip. PyQt6-Multimedia (video playback) and PyQt6-MultimediaWidgets are in `requirements.txt`/`environment.yml`.
+- **End user:** Downloads the zip (e.g. V-See-macOS.zip or V-See-Windows.zip), extracts it, and double-clicks the app. No Python, conda, or developer tools required. Video playback uses Qt Multimedia (bundled). For video thumbnails, ffmpeg must be on the system PATH (common on macOS via Homebrew; on Windows, thumbnails may fall back to a placeholder if ffmpeg is not installed).
 
 ## Why one build per platform?
 
@@ -39,6 +39,8 @@ PyInstaller bundles the Python interpreter, your code, and PyQt6 into a single f
 conda activate v-see
 pip install pyinstaller
 ```
+
+**Note:** The `environment.yml` includes ffmpeg (for video thumbnails) and PyQt6-Multimedia (for video playback). Ensure these are installed before building so video support works in the built app.
 
 ### Build (run from project root)
 
@@ -154,6 +156,11 @@ You can skip install kits and run from source on each machine:
 3. `conda activate v-see` then `./run.sh` (or `python main.py`).
 
 This is the same workflow you use now; no build step, but each machine needs Python and conda.
+
+## Video support in builds
+
+- **PyQt6-Multimedia** and **PyQt6-MultimediaWidgets** are in `requirements.txt` and `environment.yml`; PyInstaller bundles them via `hiddenimports` in `v-see.spec`.
+- **ffmpeg / ffprobe:** Used for video thumbnails (embedded thumbnail extraction and frame extraction). These are called as subprocesses and are **not** bundled. The built app looks for them on the system PATH. On macOS, users often have ffmpeg (e.g. via Homebrew). On Windows, video thumbnails may not appear if ffmpeg is not installed; the app still runs and video playback works via Qt Multimedia. To bundle ffmpeg with the app, add the platform-specific binaries to the spec's `binaries` list.
 
 ## vio-python (mp3-player) for music in builds
 
