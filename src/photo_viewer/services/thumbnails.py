@@ -114,14 +114,39 @@ class ThumbnailService(QObject):
             return self._build_video_icon(path)
         return self._build_image_icon(path)
 
+    def _get_video_thumbnail_offset_seconds(self, path: Path) -> float:
+        """
+        Pick a good position for video thumbnails.
+        Skip the first ~10% of the video (often black/intro) but cap at 2 seconds.
+        Falls back to 1 second if ffprobe fails.
+        """
+        try:
+            result = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                duration = float(result.stdout.strip())
+                if duration > 0:
+                    # Skip first ~10% (often black/intro), cap at 2s, min 0.5s
+                    offset = min(2.0, max(0.5, duration * 0.1))
+                    return offset
+        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+            pass
+        return 1.0  # Fallback: 1 second in (skips typical black start)
+
     def _build_video_icon(self, path: Path) -> QIcon | None:
-        """Extract first frame from video with ffmpeg and build icon."""
+        """Extract a representative frame from video (skips intro) and build icon."""
+        offset = self._get_video_thumbnail_offset_seconds(path)
         try:
             result = subprocess.run(
                 [
                     "ffmpeg",
                     "-y",
-                    "-ss", "0",
+                    "-ss", str(offset),
                     "-i", str(path),
                     "-vframes", "1",
                     "-f", "image2pipe",
