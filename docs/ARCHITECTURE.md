@@ -120,13 +120,14 @@ The persistence API lives in `photo_viewer.services.persistence`: `get_last_fold
 - **Asynchronous thumbnails:** Decoding and scaling are done on a `ThreadPoolExecutor` in `ThumbnailService`; the GUI thread only updates item icons when `thumbnail_ready` is emitted.
 - **Planned:** Virtual scrolling / lazy loading for very large folders (e.g. 10,000+ images), and pre-fetching for instant switching in View mode.
 
-### 7. Defensive Handling for Invalid Paths
+### 7. Defensive Handling for Invalid Paths and Disconnected Drives
 
 Persisted folder paths (photos and music) may become invalid if the user deletes folders or disconnects external storage. To avoid crashes:
 
 - **On startup:** Before restoring persisted paths, the app validates each path (exists, is directory, under tree root). Invalid paths fall back to the tree root; when the music folder is invalid, the slideshow music dropdown is reset to "No music".
 - **During use:** If the user selects a folder that has become invalid (e.g. drive disconnected after expansion), selection is redirected to root; for the music folder, the dropdown is also reset to "No music".
 - **Thumbnail grid and music file list:** Path access is wrapped in try/except for `OSError` and `PermissionError` so disconnected drives do not crash the app.
+- **Unexpected disconnection:** Go-up buttons, path resolution in `_expand_and_select_path`, image loading (preview pane and viewer), and the thumbnail service catch `OSError`/`PermissionError` so the app continues to run if an external device is disconnected mid-session. The user sees a fallback (e.g. "Cannot load image (device disconnected?)") instead of a crash.
 
 ---
 

@@ -10,8 +10,9 @@ Author: Viorel LUPU
 Date: 2025-02-10
 """
 
+from photo_viewer.components.help_dialog import HelpDialog
 from photo_viewer.components.image_viewer_window import ImageViewerWindow
 from photo_viewer.components.slideshow_config_dialog import SlideshowConfigDialog
 from photo_viewer.components.thumbnail_grid import ThumbnailGridWidget
 
-__all__ = ["ThumbnailGridWidget", "ImageViewerWindow", "SlideshowConfigDialog"]
+__all__ = ["HelpDialog", "ThumbnailGridWidget", "ImageViewerWindow", "SlideshowConfigDialog"]

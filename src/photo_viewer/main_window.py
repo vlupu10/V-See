@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from photo_viewer.components.help_dialog import HelpDialog
 from photo_viewer.components.image_viewer_window import ImageViewerWindow
 from photo_viewer.components.slideshow_config_dialog import SlideshowConfigDialog
 
@@ -149,6 +150,12 @@ class MainWindow(QMainWindow):
         outer_splitter.setStretchFactor(1, 4)
 
         self.setCentralWidget(outer_splitter)
+
+        # Status bar with Help button on the right
+        btn_help = QPushButton("Help", self)
+        btn_help.setToolTip("Show usage instructions")
+        btn_help.clicked.connect(self._on_help_clicked)
+        self.statusBar().addPermanentWidget(btn_help)
 
         # Restore last main window size/position if stored.
         geo = get_main_window_geometry()
@@ -322,53 +329,75 @@ class MainWindow(QMainWindow):
         Windows only. Disabled when at drive root (parent equals self).
         """
         current = self._get_selected_folder_path()
-        if current is None or not current.is_dir():
+        if current is None:
             return
-        parent = current.resolve().parent
-        # At drive root, parent equals current (e.g. C:\ parent is C:\).
-        if parent == current or not parent.is_dir():
+        try:
+            if not current.is_dir():
+                return
+            parent = current.resolve().parent
+            # At drive root, parent equals current (e.g. C:\ parent is C:\).
+            if parent == current or not parent.is_dir():
+                return
+        except (OSError, PermissionError):
+            return  # e.g. drive disconnected
+        try:
+            set_last_folder(str(parent))
+            self._expand_and_select_path(
+                parent, self._folder_tree_view, self._folder_model, self._folder_root_item
+            )
+        except (OSError, PermissionError):
             return
-        set_last_folder(str(parent))
-        self._expand_and_select_path(
-            parent, self._folder_tree_view, self._folder_model, self._folder_root_item
-        )
         self._update_go_up_button_state()
 
     def _on_music_go_up_clicked(self) -> None:
         """Navigate to the parent of the currently selected music folder."""
         current = self._get_selected_music_folder_path()
-        if current is None or not current.is_dir():
+        if current is None:
             return
-        parent = current.resolve().parent
-        if parent == current or not parent.is_dir():
+        try:
+            if not current.is_dir():
+                return
+            parent = current.resolve().parent
+            if parent == current or not parent.is_dir():
+                return
+        except (OSError, PermissionError):
+            return  # e.g. drive disconnected
+        try:
+            set_last_music_folder(str(parent))
+            self._expand_and_select_path(
+                parent,
+                self._music_folder_tree_view,
+                self._music_folder_model,
+                self._music_folder_root_item,
+            )
+        except (OSError, PermissionError):
             return
-        set_last_music_folder(str(parent))
-        self._expand_and_select_path(
-            parent,
-            self._music_folder_tree_view,
-            self._music_folder_model,
-            self._music_folder_root_item,
-        )
         self._update_go_up_button_state()
 
     def _update_go_up_button_state(self) -> None:
         """Enable or disable the Go up buttons based on current selections."""
         if self._btn_go_up is not None:
             current = self._get_selected_folder_path()
-            if current is None or not current.is_dir():
+            try:
+                if current is None or not current.is_dir():
+                    self._btn_go_up.setEnabled(False)
+                else:
+                    parent = current.resolve().parent
+                    self._btn_go_up.setEnabled(parent != current and parent.is_dir())
+            except (OSError, PermissionError):
                 self._btn_go_up.setEnabled(False)
-            else:
-                parent = current.resolve().parent
-                self._btn_go_up.setEnabled(parent != current and parent.is_dir())
         if self._btn_music_go_up is not None:
             current = self._get_selected_music_folder_path()
-            if current is None or not current.is_dir():
+            try:
+                if current is None or not current.is_dir():
+                    self._btn_music_go_up.setEnabled(False)
+                else:
+                    parent = current.resolve().parent
+                    self._btn_music_go_up.setEnabled(
+                        parent != current and parent.is_dir()
+                    )
+            except (OSError, PermissionError):
                 self._btn_music_go_up.setEnabled(False)
-            else:
-                parent = current.resolve().parent
-                self._btn_music_go_up.setEnabled(
-                    parent != current and parent.is_dir()
-                )
 
     def _build_folder_model(self) -> tuple[QStandardItemModel, QStandardItem]:
         """
@@ -566,12 +595,18 @@ class MainWindow(QMainWindow):
     ) -> None:
         """
         Expand the folder tree along the given path and select the final node.
+        On OSError (e.g. disconnected drive), falls back to selecting root.
         """
         if tree_view is None or root_item is None:
             return
 
-        path = path.resolve()
-        root = self._folder_root_path.resolve()
+        try:
+            path = path.resolve()
+            root = self._folder_root_path.resolve()
+        except (OSError, PermissionError):
+            root_index = model.indexFromItem(root_item)
+            tree_view.setCurrentIndex(root_index)
+            return
 
         if path == root:
             root_index = model.indexFromItem(root_item)
@@ -593,7 +628,10 @@ class MainWindow(QMainWindow):
 
         for part in parts:
             current_path = current_path / part
-            self._ensure_folder_children_loaded(current_item)
+            try:
+                self._ensure_folder_children_loaded(current_item)
+            except (OSError, PermissionError):
+                break
             index = model.indexFromItem(current_item)
             tree_view.expand(index)
 
@@ -609,6 +647,12 @@ class MainWindow(QMainWindow):
 
         target_index = model.indexFromItem(current_item)
         tree_view.setCurrentIndex(target_index)
+
+    # --- Help ------------------------------------------------------------
+
+    def _on_help_clicked(self) -> None:
+        """Show the Help dialog with usage instructions."""
+        HelpDialog(self).exec()
 
     # --- Slideshow music (auto-start when slideshow runs) ----------------
 
@@ -799,15 +843,24 @@ class MainWindow(QMainWindow):
         if self._preview_image_label is None:
             return
 
-        if image_path is None or not image_path.is_file():
+        if image_path is None:
             self._preview_image_path = None
-            self._preview_image_label.setText(
-                "No image selected." if image_path is None else "Selected item is not a file."
-            )
+            self._preview_image_label.setText("No image selected.")
             self._preview_image_label.setPixmap(QPixmap())
             return
 
-        pixmap = QPixmap(str(image_path))
+        try:
+            if not image_path.is_file():
+                self._preview_image_path = None
+                self._preview_image_label.setText("Selected item is not a file.")
+                self._preview_image_label.setPixmap(QPixmap())
+                return
+            pixmap = QPixmap(str(image_path))
+        except (OSError, PermissionError):
+            self._preview_image_path = None
+            self._preview_image_label.setText("Cannot load image (device disconnected?).")
+            self._preview_image_label.setPixmap(QPixmap())
+            return
         if pixmap.isNull():
             self._preview_image_path = None
             self._preview_image_label.setText("Cannot load image.")
