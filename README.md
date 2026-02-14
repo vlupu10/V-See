@@ -9,8 +9,10 @@ with a strong focus on instant responsiveness and lazy loading.
 | Who | How |
 |-----|-----|
 | **Developer** (with terminal) | Open a terminal, `conda activate v-see`, then `./run.sh` (or `python main.py`). No need to build. |
-| **End user (Windows)** | Extract **V-See-Windows.zip**, then double‑click **V-See.exe**. No Python or build required. See [Installing V-See on Windows](docs/WINDOWS-SETUP.md#installing-v-see-end-users--no-build-required). |
-| **End user (macOS/Linux)** | Build once with PyInstaller, then double‑click the app. See [Building install kits](docs/DISTRIBUTION.md). |
+| **End user (Windows)** | Extract **V-See-Windows.zip**, then double‑click **V-See.exe** or **Run V-See.bat**. No Python, conda, or build required. See [Installing V-See on Windows](docs/WINDOWS-SETUP.md#installing-v-see-end-users--no-build-required). |
+| **End user (macOS)** | Extract **V-See-macOS.zip**, then double‑click **V-See.app**. No Python, conda, or build required. See [Building install kits](docs/DISTRIBUTION.md). |
+
+**Important:** Conda, Python, vio-python, and mp3-player are required only for **developers** who build the app. End users simply download the zip, extract it, and run the app—no extra software needed.
 
 ### Quick start (development)
 

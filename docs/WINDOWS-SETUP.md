@@ -6,7 +6,7 @@ This document covers both **installing V-See as an end user** (no build required
 
 ## Installing V-See (End Users – No Build Required)
 
-If you have **V-See-Windows.zip**, you can run V-See without installing Python or any developer tools.
+If you have **V-See-Windows.zip**, you can run V-See without installing Python, conda, vio-python, or any developer tools. Simply extract and run—everything is bundled in the zip.
 
 ### Step 1: Download and extract
 
@@ -38,9 +38,9 @@ To start V-See from your Desktop:
 
 ---
 
-## Building V-See from Source (Developers)
+## Building V-See from Source (Developers Only)
 
-The following sections are for developers who want to run V-See from source or create distribution packages.
+The following sections are for developers who want to run V-See from source or create distribution packages. **End users do not need this**—they just extract and run the zip.
 
 ---
 
@@ -125,9 +125,18 @@ pip install pyinstaller
 
 ### 10. Build the application
 
-From the project root (same folder as `main.py` and `v-see.spec`):
+**Recommended** – from the project root, run the build script (installs mp3-player for music, builds, and creates the zip):
 
 ```powershell
+scripts\build-and-zip.bat
+```
+
+Or manually:
+
+```powershell
+conda activate v-see
+pip install -e "..\vio-python[qt]"   # optional, for music support
+pip install pyinstaller
 pyinstaller v-see.spec --noconfirm
 ```
 
