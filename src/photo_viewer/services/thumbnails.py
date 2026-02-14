@@ -138,15 +138,47 @@ class ThumbnailService(QObject):
             pass
         return 1.0  # Fallback: 1 second in (skips typical black start)
 
-    def _build_video_icon(self, path: Path) -> QIcon | None:
-        """Extract a representative frame from video (skips intro) and build icon."""
-        offset = self._get_video_thumbnail_offset_seconds(path)
+    def _extract_embedded_thumbnail(self, path: Path) -> QIcon | None:
+        """
+        Extract embedded thumbnail (attached pic) if present.
+        Uses -map 0:v -map -0:V to select only attached-pic streams
+        (DJI, GoPro, phones, etc. embed thumbnails this way).
+        """
         try:
             result = subprocess.run(
                 [
                     "ffmpeg",
                     "-y",
-                    "-ss", str(offset),
+                    "-i", str(path),
+                    "-map", "0:v",
+                    "-map", "-0:V",
+                    "-c", "copy",
+                    "-vframes", "1",
+                    "-f", "image2pipe",
+                    "-",
+                ],
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return None
+        if result.returncode != 0 or not result.stdout:
+            return None
+        try:
+            img = Image.open(io.BytesIO(result.stdout))
+            return self._pil_to_icon(img.convert("RGBA"))
+        except Exception:
+            return None
+
+    def _extract_frame_at_offset(self, path: Path, offset_seconds: float) -> QIcon | None:
+        """Extract a frame at the given time offset and build icon."""
+        try:
+            result = subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-ss", str(offset_seconds),
                     "-i", str(path),
                     "-vframes", "1",
                     "-f", "image2pipe",
@@ -166,6 +198,17 @@ class ThumbnailService(QObject):
             return self._pil_to_icon(img)
         except Exception:
             return None
+
+    def _build_video_icon(self, path: Path) -> QIcon | None:
+        """
+        Build video thumbnail. Prefer embedded thumbnail (attached pic from cameras
+        like DJI, GoPro); fall back to extracting a frame at ~10% into the video.
+        """
+        icon = self._extract_embedded_thumbnail(path)
+        if icon is not None:
+            return icon
+        offset = self._get_video_thumbnail_offset_seconds(path)
+        return self._extract_frame_at_offset(path, offset)
 
     def _build_image_icon(self, path: Path) -> QIcon | None:
         """Decode image with Pillow and build icon."""
