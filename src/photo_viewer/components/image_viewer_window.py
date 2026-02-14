@@ -47,6 +47,8 @@ class ImageViewerWindow(QMainWindow):
         self,
         image_paths: Sequence[Path],
         start_index: int = 0,
+        music_folder: Path | None = None,
+        main_window: QWidget | None = None,
         parent: QWidget | None = None,
     ) -> None:
         """
@@ -59,14 +61,22 @@ class ImageViewerWindow(QMainWindow):
             the user double-clicked a thumbnail.
         start_index:
             Index into image_paths of the image to show initially.
+        music_folder:
+            Path to the music folder (from the main window's music selection).
+            Used for slideshow config dropdown and MP3 player playlist.
+        main_window:
+            Reference to the main (Manage) window for slideshow music control.
+            Required for auto-start/stop of music when slideshow runs.
         parent:
             Optional parent; the window is still top-level.
         """
         super().__init__(parent)
+        self._main_window = main_window
         self.setWindowTitle("V-See – Viewer")
         self.resize(1200, 800)
 
         self._image_paths = list(image_paths)
+        self._music_folder = music_folder
         self._current_index = max(0, min(start_index, len(self._image_paths) - 1))
 
         # Simple slideshow: when active, a timer advances to the next image
@@ -97,7 +107,8 @@ class ImageViewerWindow(QMainWindow):
         Build toolbar + central image area.
 
         The toolbar hosts navigation and slideshow controls. The central
-        area hosts the image label and filename.
+        area hosts the image label and filename. Music is managed in the
+        main (Manage) window.
         """
         central = QWidget(self)
         self.setCentralWidget(central)
@@ -119,6 +130,10 @@ class ImageViewerWindow(QMainWindow):
         self._btn_slideshow = QPushButton("Slideshow ON", central)
         self._btn_slideshow.clicked.connect(self._toggle_slideshow)
 
+        self._btn_stop_music = QPushButton("Stop music", central)
+        self._btn_stop_music.setToolTip("Stop background music")
+        self._btn_stop_music.clicked.connect(self._stop_slideshow_music)
+
         btn_config = QPushButton("Configure Slideshow", central)
         btn_config.clicked.connect(self._open_slideshow_config)
 
@@ -132,6 +147,7 @@ class ImageViewerWindow(QMainWindow):
         controls_layout.addWidget(self._btn_next)
         controls_layout.addSpacing(16)
         controls_layout.addWidget(self._btn_slideshow)
+        controls_layout.addWidget(self._btn_stop_music)
         controls_layout.addWidget(btn_config)
         controls_layout.addWidget(self._btn_fullscreen)
         controls_layout.addWidget(fullscreen_hint)
@@ -179,13 +195,14 @@ class ImageViewerWindow(QMainWindow):
         Start/stop slideshow.
 
         When running, the viewer automatically advances to the next image
-        every few seconds. Stopping the slideshow leaves the viewer on the
-        last-shown image, which is usually what users expect.
+        every few seconds. Music auto-starts from the main window if configured
+        (music folder selected and dropdown not "No music").
         """
         if self._slideshow_running:
             self._slideshow_timer.stop()
             self._slideshow_running = False
             self._btn_slideshow.setText("Slideshow ON")
+            self._stop_slideshow_music()
         else:
             if not self._image_paths:
                 return
@@ -194,6 +211,19 @@ class ImageViewerWindow(QMainWindow):
             self._slideshow_timer.start()
             self._slideshow_running = True
             self._btn_slideshow.setText("Slideshow OFF")
+            self._start_slideshow_music_if_configured()
+
+    def _start_slideshow_music_if_configured(self) -> None:
+        """Ask the main window to start slideshow music if configured."""
+        mw = self._main_window
+        if mw is not None and hasattr(mw, "start_slideshow_music_if_configured"):
+            mw.start_slideshow_music_if_configured()
+
+    def _stop_slideshow_music(self) -> None:
+        """Ask the main window to stop slideshow music."""
+        mw = self._main_window
+        if mw is not None and hasattr(mw, "stop_slideshow_music"):
+            mw.stop_slideshow_music()
 
     def _on_slideshow_tick(self) -> None:
         """Timer callback: advance to the next image."""
@@ -204,7 +234,7 @@ class ImageViewerWindow(QMainWindow):
         Open the Configure Slideshow dialog. If the user accepts,
         update our interval and restart the timer if slideshow is running.
         """
-        dialog = SlideshowConfigDialog(self)
+        dialog = SlideshowConfigDialog(self, music_folder=self._music_folder)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._slideshow_interval_ms = get_slideshow_interval_seconds() * 1000
             if self._slideshow_running:
@@ -308,7 +338,8 @@ class ImageViewerWindow(QMainWindow):
         self._apply_scaled_pixmap()
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
-        """Persist viewer window geometry when the window is closed."""
+        """Stop slideshow music and persist geometry when the window is closed."""
+        self._stop_slideshow_music()
         geo = self.saveGeometry()
         if not geo.isEmpty():
             set_viewer_window_geometry(geo.toBase64().data().decode("ascii"))

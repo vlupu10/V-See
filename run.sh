@@ -2,6 +2,7 @@
 # Start V-See photo viewer from the project root.
 # Uses only the isolated conda env "v-see" (no interference with other projects).
 # One-time setup: conda env create -f environment.yml
+# Optional (music): conda activate v-see && pip install -e "../vio-python[qt]"
 
 set -e
 cd "$(dirname "$0")"

@@ -17,12 +17,14 @@ Date: 2025-02-10
 import sys
 from pathlib import Path
 
-from PyQt6.QtCore import QByteArray, QEvent, Qt
+from PyQt6.QtCore import QByteArray, QEvent, Qt, QTimer
 from PyQt6.QtGui import QPixmap, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QPushButton,
     QSplitter,
@@ -32,11 +34,47 @@ from PyQt6.QtWidgets import (
 )
 
 from photo_viewer.components.image_viewer_window import ImageViewerWindow
+from photo_viewer.components.slideshow_config_dialog import SlideshowConfigDialog
+
+_mp3_import_error: str | None = None
+try:
+    from mp3_player import Mp3PlayerWidget, load_sound_files
+except ImportError as e:
+    Mp3PlayerWidget = None  # type: ignore[misc, assignment]
+    _mp3_import_error = str(e)
+    try:
+        from photo_viewer.services.audio import load_sound_files
+    except ImportError:
+        load_sound_files = None  # type: ignore[assignment, misc]
+
+# Fallback when neither mp3_player nor services.audio is available (list still populates)
+AUDIO_EXTENSIONS = (".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac")
+
+
+def _load_sound_files_fallback(sound_dir: Path) -> dict[str, Path]:
+    """Scan folder for audio files when mp3_player is not installed."""
+    try:
+        if not sound_dir.exists() or not sound_dir.is_dir():
+            return {}
+    except OSError:
+        return {}
+    sound_files: dict[str, Path] = {}
+    ext_lower = tuple(e.lower() for e in AUDIO_EXTENSIONS)
+    try:
+        for path in sorted(sound_dir.iterdir(), key=lambda p: p.name.lower()):
+            if path.is_file() and path.suffix.lower() in ext_lower:
+                sound_files[path.stem] = path
+    except (PermissionError, OSError):
+        pass
+    return sound_files
 from photo_viewer.components.thumbnail_grid import ThumbnailGridWidget
 from photo_viewer.services.persistence import (
     get_last_folder,
+    get_last_music_folder,
     get_main_window_geometry,
+    get_slideshow_music,
     set_last_folder,
+    set_last_music_folder,
     set_main_window_geometry,
 )
 from photo_viewer.services.thumbnails import ThumbnailService
@@ -65,7 +103,9 @@ class MainWindow(QMainWindow):
         else:
             self._folder_root_path = Path.home()
         self._folder_root_item: QStandardItem | None = None
-        self._folder_model = self._build_folder_model()
+        self._folder_model, self._folder_root_item = self._build_folder_model()
+        self._music_folder_root_item: QStandardItem | None = None
+        self._music_folder_model, self._music_folder_root_item = self._build_folder_model()
 
         # Thumbnail service for the center pane; decoding runs on background threads.
         self._thumbnail_service = ThumbnailService(parent=self)
@@ -75,10 +115,15 @@ class MainWindow(QMainWindow):
         # Preview pane widgets (created in _create_preview_pane).
         self._preview_image_label: QLabel | None = None
         self._preview_image_path: Path | None = None  # current image path, for resize re-scale
-        # Folder tree view reference so we can expand/select by path on restore.
+        # Folder tree views for photos and music.
         self._folder_tree_view: QTreeView | None = None
-        # Go-up button (Windows only) for navigating to parent folder.
+        self._music_folder_tree_view: QTreeView | None = None
+        # Go-up buttons (Windows only) for navigating to parent folder.
         self._btn_go_up: QPushButton | None = None
+        self._btn_music_go_up: QPushButton | None = None
+        # Music section: file list and player.
+        self._music_file_list: QListWidget | None = None
+        self._mp3_player: Mp3PlayerWidget | None = None
 
         self._init_ui()
 
@@ -114,66 +159,138 @@ class MainWindow(QMainWindow):
 
         # Restore last visited folder from persistence, or select home.
         self._restore_last_folder()
+        # Defer so tree selection is fully applied before we read it
+        QTimer.singleShot(0, self._update_music_file_list)
 
     # --- Folder tree pane ------------------------------------------------
 
     def _create_folder_pane(self) -> QWidget:
         """
-        Create the left pane: a labelled "Folders" header and a tree view.
-
-        On Windows, a "↑" (Go up) button is shown at the top to navigate to
-        the parent folder. The tree is backed by a QStandardItemModel that
-        mirrors the real filesystem, rooted at drive root (Windows) or home
-        (macOS/Linux). Child directories are populated lazily when expanded.
+        Create the left pane: vertically split into Photos folder (top) and
+        Music folder (bottom). Each has a tree view for selecting a directory.
         """
         container = QWidget(self)
         layout = QVBoxLayout(container)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        # Windows only: "Go up" button to navigate to parent folder.
+        vertical_splitter = QSplitter(Qt.Orientation.Vertical, container)
+
+        # --- Top: Photos folder ---
+        photos_section = QWidget(container)
+        photos_layout = QVBoxLayout(photos_section)
+        photos_layout.setContentsMargins(0, 0, 0, 0)
+        photos_layout.setSpacing(4)
+
         if sys.platform == "win32":
-            btn_go_up = QPushButton("↑", container)
+            btn_go_up = QPushButton("↑", photos_section)
             btn_go_up.setObjectName("btnGoUp")
-            btn_go_up.setToolTip("Go up one level")
+            btn_go_up.setToolTip("Go up one level (photos)")
             btn_go_up.setMaximumWidth(32)
-            btn_go_up.clicked.connect(self._on_go_up_clicked)
+            btn_go_up.clicked.connect(self._on_photos_go_up_clicked)
             self._btn_go_up = btn_go_up
-            layout.addWidget(btn_go_up)
+            photos_layout.addWidget(btn_go_up)
 
-        header = QLabel("Folders", container)
-        header.setObjectName("folderHeader")
-        header.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        photos_header = QLabel("Photos folder", photos_section)
+        photos_header.setObjectName("folderHeader")
+        photos_header.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
 
-        tree_view = QTreeView(container)
-        tree_view.setObjectName("folderTree")
-        tree_view.setHeaderHidden(True)
-        tree_view.setUniformRowHeights(True)
-        self._folder_tree_view = tree_view
+        photos_tree = QTreeView(photos_section)
+        photos_tree.setObjectName("folderTree")
+        photos_tree.setHeaderHidden(True)
+        photos_tree.setUniformRowHeights(True)
+        self._folder_tree_view = photos_tree
+        photos_tree.setModel(self._folder_model)
 
-        tree_view.setModel(self._folder_model)
-
-        # Expand the home directory node by default to mimic typical
-        # file browsers and to give immediate context.
         if self._folder_root_item is not None:
             root_index = self._folder_model.indexFromItem(self._folder_root_item)
-            tree_view.expand(root_index)
+            photos_tree.expand(root_index)
 
-        # When a folder is expanded, lazily populate its child directories.
-        tree_view.expanded.connect(self._on_folder_expanded)
+        photos_tree.expanded.connect(self._on_photos_folder_expanded)
+        sel_model = photos_tree.selectionModel()
+        if sel_model is not None:
+            sel_model.currentChanged.connect(self._on_folder_selected)
 
-        # When the current folder selection changes, update the file list pane.
-        selection_model = tree_view.selectionModel()
-        if selection_model is not None:
-            selection_model.currentChanged.connect(self._on_folder_selected)
+        photos_layout.addWidget(photos_header)
+        photos_layout.addWidget(photos_tree)
 
-        layout.addWidget(header)
-        layout.addWidget(tree_view)
+        # --- Bottom: Music folder ---
+        music_section = QWidget(container)
+        music_section.setMinimumHeight(200)
+        music_layout = QVBoxLayout(music_section)
+        music_layout.setContentsMargins(0, 0, 0, 0)
+        music_layout.setSpacing(4)
 
+        if sys.platform == "win32":
+            btn_music_go_up = QPushButton("↑", music_section)
+            btn_music_go_up.setObjectName("btnMusicGoUp")
+            btn_music_go_up.setToolTip("Go up one level (music)")
+            btn_music_go_up.setMaximumWidth(32)
+            btn_music_go_up.clicked.connect(self._on_music_go_up_clicked)
+            self._btn_music_go_up = btn_music_go_up
+            music_layout.addWidget(btn_music_go_up)
+
+        music_header = QLabel("Music folder", music_section)
+        music_header.setObjectName("musicFolderHeader")
+        music_header.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+
+        music_tree = QTreeView(music_section)
+        music_tree.setObjectName("musicFolderTree")
+        music_tree.setHeaderHidden(True)
+        music_tree.setUniformRowHeights(True)
+        self._music_folder_tree_view = music_tree
+        music_tree.setModel(self._music_folder_model)
+
+        if self._music_folder_root_item is not None:
+            root_index = self._music_folder_model.indexFromItem(
+                self._music_folder_root_item
+            )
+            music_tree.expand(root_index)
+
+        music_tree.expanded.connect(self._on_music_folder_expanded)
+        music_sel = music_tree.selectionModel()
+        if music_sel is not None:
+            music_sel.currentChanged.connect(self._on_music_folder_selected)
+
+        music_layout.addWidget(music_header)
+        music_layout.addWidget(music_tree)
+
+        # Music files list (vertical) - populated when folder is selected
+        music_files_label = QLabel("Playable files:", music_section)
+        music_files_list = QListWidget(music_section)
+        music_files_list.setObjectName("musicFileList")
+        music_files_list.setMinimumHeight(80)
+        self._music_file_list = music_files_list
+        music_layout.addWidget(music_files_label)
+        music_layout.addWidget(music_files_list)
+
+        # MP3 player controls
+        if Mp3PlayerWidget is not None:
+            self._mp3_player = Mp3PlayerWidget(music_section)
+            music_layout.addWidget(self._mp3_player)
+        else:
+            hint = "pip install -e \"../vio-python[qt]\" (from Project-photo-viewer)"
+            if _mp3_import_error:
+                hint = f"{_mp3_import_error} — {hint}"
+            no_player = QLabel(f"Install mp3-player[qt] for playback\n{hint}", music_section)
+            no_player.setStyleSheet("color: gray; font-size: 11px;")
+            no_player.setWordWrap(True)
+            music_layout.addWidget(no_player)
+
+        vertical_splitter.addWidget(photos_section)
+        vertical_splitter.addWidget(music_section)
+        vertical_splitter.setStretchFactor(0, 1)
+        vertical_splitter.setStretchFactor(1, 1)
+
+        layout.addWidget(vertical_splitter)
         return container
 
     def _get_selected_folder_path(self) -> Path | None:
-        """Return the path of the currently selected folder, or None."""
+        """Return the path of the currently selected photos folder, or None."""
         if self._folder_tree_view is None or self._folder_model is None:
             return None
         index = self._folder_tree_view.currentIndex()
@@ -185,7 +302,20 @@ class MainWindow(QMainWindow):
             return None
         return Path(path_str)
 
-    def _on_go_up_clicked(self) -> None:
+    def _get_selected_music_folder_path(self) -> Path | None:
+        """Return the path of the currently selected music folder, or None."""
+        if self._music_folder_tree_view is None or self._music_folder_model is None:
+            return None
+        index = self._music_folder_tree_view.currentIndex()
+        item = self._music_folder_model.itemFromIndex(index)
+        if item is None:
+            return None
+        path_str = item.data(Qt.ItemDataRole.UserRole)
+        if not path_str:
+            return None
+        return Path(path_str)
+
+    def _on_photos_go_up_clicked(self) -> None:
         """
         Navigate to the parent of the currently selected folder.
 
@@ -199,26 +329,53 @@ class MainWindow(QMainWindow):
         if parent == current or not parent.is_dir():
             return
         set_last_folder(str(parent))
-        self._expand_and_select_path(parent)
+        self._expand_and_select_path(
+            parent, self._folder_tree_view, self._folder_model, self._folder_root_item
+        )
+        self._update_go_up_button_state()
+
+    def _on_music_go_up_clicked(self) -> None:
+        """Navigate to the parent of the currently selected music folder."""
+        current = self._get_selected_music_folder_path()
+        if current is None or not current.is_dir():
+            return
+        parent = current.resolve().parent
+        if parent == current or not parent.is_dir():
+            return
+        set_last_music_folder(str(parent))
+        self._expand_and_select_path(
+            parent,
+            self._music_folder_tree_view,
+            self._music_folder_model,
+            self._music_folder_root_item,
+        )
         self._update_go_up_button_state()
 
     def _update_go_up_button_state(self) -> None:
-        """Enable or disable the Go up button based on current selection."""
-        if self._btn_go_up is None:
-            return
-        current = self._get_selected_folder_path()
-        if current is None or not current.is_dir():
-            self._btn_go_up.setEnabled(False)
-            return
-        parent = current.resolve().parent
-        # Disable when at drive root (parent equals current).
-        self._btn_go_up.setEnabled(parent != current and parent.is_dir())
+        """Enable or disable the Go up buttons based on current selections."""
+        if self._btn_go_up is not None:
+            current = self._get_selected_folder_path()
+            if current is None or not current.is_dir():
+                self._btn_go_up.setEnabled(False)
+            else:
+                parent = current.resolve().parent
+                self._btn_go_up.setEnabled(parent != current and parent.is_dir())
+        if self._btn_music_go_up is not None:
+            current = self._get_selected_music_folder_path()
+            if current is None or not current.is_dir():
+                self._btn_music_go_up.setEnabled(False)
+            else:
+                parent = current.resolve().parent
+                self._btn_music_go_up.setEnabled(
+                    parent != current and parent.is_dir()
+                )
 
-    def _build_folder_model(self) -> QStandardItemModel:
+    def _build_folder_model(self) -> tuple[QStandardItemModel, QStandardItem]:
         """
         Create a model containing a single top-level node for the user's
         home directory. Each node initially has a placeholder child so it
         can be expanded; real children are populated on demand.
+        Returns (model, root_item).
         """
         model = QStandardItemModel(self)
         model.setHorizontalHeaderLabels(["Folders"])
@@ -236,19 +393,67 @@ class MainWindow(QMainWindow):
         home_item.appendRow(QStandardItem("…"))
 
         root_item.appendRow(home_item)
-        self._folder_root_item = home_item
+        return model, home_item
 
-        return model
-
-    def _on_folder_expanded(self, index) -> None:
-        """
-        Slot called when a folder node is expanded. Ensures that the
-        node's child directories are populated at this moment.
-        """
+    def _on_photos_folder_expanded(self, index) -> None:
+        """Slot called when a photos folder node is expanded."""
         item = self._folder_model.itemFromIndex(index)
         if item is None:
             return
         self._ensure_folder_children_loaded(item)
+
+    def _on_music_folder_expanded(self, index) -> None:
+        """Slot called when a music folder node is expanded."""
+        item = self._music_folder_model.itemFromIndex(index)
+        if item is None:
+            return
+        self._ensure_folder_children_loaded(item)
+
+    def _on_music_folder_selected(self, current, _previous) -> None:
+        """Slot called when the music folder selection changes."""
+        item = self._music_folder_model.itemFromIndex(current)
+        if item is None:
+            return
+        path_str = item.data(Qt.ItemDataRole.UserRole)
+        if not path_str:
+            return
+        if not self._is_path_valid_folder(path_str):
+            self._expand_and_select_path(
+                self._folder_root_path,
+                self._music_folder_tree_view,
+                self._music_folder_model,
+                self._music_folder_root_item,
+            )
+            set_slideshow_music(SlideshowConfigDialog.NO_MUSIC)
+            self._update_go_up_button_state()
+            self._update_music_file_list()
+            return
+        set_last_music_folder(path_str)
+        self._update_go_up_button_state()
+        self._update_music_file_list()
+
+    def _update_music_file_list(self) -> None:
+        """Populate the music file list and MP3 player from the selected music folder."""
+        folder = self._get_selected_music_folder_path()
+        if self._music_file_list is None:
+            return
+        self._music_file_list.clear()
+        if folder is None:
+            return
+        if not self._is_path_valid_folder(str(folder)):
+            return
+        loader = load_sound_files if load_sound_files is not None else _load_sound_files_fallback
+        try:
+            songs = loader(folder)
+        except (OSError, PermissionError):
+            return
+        for name in sorted(songs.keys()):
+            self._music_file_list.addItem(QListWidgetItem(name))
+        if self._mp3_player is not None:
+            try:
+                self._mp3_player.set_playlist_from_folder(folder)
+            except (OSError, PermissionError):
+                pass
 
     def _ensure_folder_children_loaded(self, item: QStandardItem) -> None:
         """
@@ -261,16 +466,14 @@ class MainWindow(QMainWindow):
             item.removeRows(0, item.rowCount())
 
             dir_path = Path(item.data(Qt.ItemDataRole.UserRole))
-            if not dir_path.is_dir():
-                return
-
             try:
+                if not dir_path.is_dir():
+                    return
                 children = sorted(
                     [p for p in dir_path.iterdir() if p.is_dir()],
                     key=lambda p: p.name.lower(),
                 )
-            except PermissionError:
-                # Skip directories we cannot read.
+            except (PermissionError, OSError):
                 return
 
             for child_path in children:
@@ -280,67 +483,119 @@ class MainWindow(QMainWindow):
                 child_item.appendRow(QStandardItem("…"))
                 item.appendRow(child_item)
 
+    def _is_path_valid_folder(self, path_str: str) -> bool:
+        """
+        Return True if the path exists, is a directory, and is under the tree root.
+        Handles disconnected external drives, deleted folders, etc.
+        """
+        if not path_str or not path_str.strip():
+            return False
+        try:
+            root = self._folder_root_path.resolve()
+            path = Path(path_str).resolve()
+            if not path.is_dir():
+                return False
+            path.relative_to(root)  # raises ValueError if not under root
+            return True
+        except (ValueError, OSError, RuntimeError):
+            return False
+
     def _restore_last_folder(self) -> None:
         """
-        Restore the last visited folder from persistence and select it,
-        so the thumbnail grid loads that folder. Only use the stored path if it
-        exists on this machine and is under the tree root (drive root on Windows,
-        home on macOS/Linux). Paths from another OS or user are ignored.
+        Restore the last visited photos and music folders from persistence.
+
+        If persisted paths are invalid (e.g. deleted folders, disconnected
+        external drives), fall back to the tree root. When the music folder
+        cannot be restored, the slideshow music dropdown is reset to "No music".
         """
-        last = get_last_folder()
         root = self._folder_root_path.resolve()
-        use_last = False
-        if last:
+
+        # Photos folder
+        last = get_last_folder()
+        use_last = self._is_path_valid_folder(last) if last else False
+        if use_last:
             try:
                 path = Path(last).resolve()
-                if path.is_dir():
-                    path.relative_to(root)  # raises ValueError if not under root
-                    use_last = True
-                    self._expand_and_select_path(path)
-            except (ValueError, OSError):
-                pass
+                self._expand_and_select_path(
+                    path,
+                    self._folder_tree_view,
+                    self._folder_model,
+                    self._folder_root_item,
+                )
+            except (ValueError, OSError, RuntimeError):
+                use_last = False
         if not use_last:
-            self._expand_and_select_path(self._folder_root_path)
+            self._expand_and_select_path(
+                self._folder_root_path,
+                self._folder_tree_view,
+                self._folder_model,
+                self._folder_root_item,
+            )
+
+        # Music folder
+        last_music = get_last_music_folder()
+        use_last_music = self._is_path_valid_folder(last_music) if last_music else False
+        if use_last_music:
+            try:
+                path = Path(last_music).resolve()
+                self._expand_and_select_path(
+                    path,
+                    self._music_folder_tree_view,
+                    self._music_folder_model,
+                    self._music_folder_root_item,
+                )
+            except (ValueError, OSError, RuntimeError):
+                use_last_music = False
+        if not use_last_music:
+            self._expand_and_select_path(
+                self._folder_root_path,
+                self._music_folder_tree_view,
+                self._music_folder_model,
+                self._music_folder_root_item,
+            )
+            set_slideshow_music(SlideshowConfigDialog.NO_MUSIC)
+
         self._update_go_up_button_state()
 
-    def _expand_and_select_path(self, path: Path) -> None:
+    def _expand_and_select_path(
+        self,
+        path: Path,
+        tree_view: QTreeView | None,
+        model: QStandardItemModel,
+        root_item: QStandardItem | None,
+    ) -> None:
         """
         Expand the folder tree along the given path and select the final node.
-
-        Used on startup to open the last folder, or to fall back to root.
-        The tree is lazy so we expand each segment and find the matching child.
         """
-        if self._folder_tree_view is None or self._folder_root_item is None:
+        if tree_view is None or root_item is None:
             return
 
         path = path.resolve()
         root = self._folder_root_path.resolve()
 
         if path == root:
-            root_index = self._folder_model.indexFromItem(self._folder_root_item)
-            self._folder_tree_view.expand(root_index)
-            self._folder_tree_view.setCurrentIndex(root_index)
+            root_index = model.indexFromItem(root_item)
+            tree_view.expand(root_index)
+            tree_view.setCurrentIndex(root_index)
             return
 
         try:
             relative = path.relative_to(root)
         except ValueError:
-            # Path not under root (e.g. different drive on Windows); select root.
-            root_index = self._folder_model.indexFromItem(self._folder_root_item)
-            self._folder_tree_view.expand(root_index)
-            self._folder_tree_view.setCurrentIndex(root_index)
+            root_index = model.indexFromItem(root_item)
+            tree_view.expand(root_index)
+            tree_view.setCurrentIndex(root_index)
             return
 
         parts = relative.parts
-        current_item = self._folder_root_item
+        current_item = root_item
         current_path = root
 
         for part in parts:
             current_path = current_path / part
-            # Ensure children are loaded so we can find the next segment.
             self._ensure_folder_children_loaded(current_item)
-            index = self._folder_model.indexFromItem(current_item)
-            self._folder_tree_view.expand(index)
+            index = model.indexFromItem(current_item)
+            tree_view.expand(index)
 
             found = None
             for row in range(current_item.rowCount()):
@@ -352,8 +607,50 @@ class MainWindow(QMainWindow):
                 break
             current_item = found
 
-        target_index = self._folder_model.indexFromItem(current_item)
-        self._folder_tree_view.setCurrentIndex(target_index)
+        target_index = model.indexFromItem(current_item)
+        tree_view.setCurrentIndex(target_index)
+
+    # --- Slideshow music (auto-start when slideshow runs) ----------------
+
+    def start_slideshow_music_if_configured(self) -> None:
+        """
+        Start music playback if a music folder is selected and the persisted
+        dropdown is not "No music". Called by the viewer when slideshow starts.
+        Skips if the folder is invalid (e.g. disconnected external drive).
+        """
+        folder = self._get_selected_music_folder_path()
+        if folder is None or not self._is_path_valid_folder(str(folder)):
+            return
+        if self._mp3_player is None:
+            return
+        music_choice = get_slideshow_music()
+        if music_choice == SlideshowConfigDialog.NO_MUSIC:
+            return
+        start_from = None
+        if music_choice not in (SlideshowConfigDialog.NO_MUSIC, SlideshowConfigDialog.ALL_SONGS):
+            start_from = music_choice
+        loader = load_sound_files if load_sound_files else _load_sound_files_fallback
+        try:
+            songs = loader(folder)
+        except (OSError, PermissionError):
+            self.statusBar().showMessage("Music: could not read folder.", 5000)
+            return
+        if not songs:
+            self.statusBar().showMessage("Music: no audio files in folder.", 5000)
+            return
+        try:
+            self._mp3_player.set_playlist_from_folder(folder, start_from_name=start_from)
+            self._mp3_player.start_playback()
+        except (OSError, PermissionError, FileNotFoundError) as e:
+            self.statusBar().showMessage(
+                f"Music: could not start — {e}",
+                5000,
+            )
+
+    def stop_slideshow_music(self) -> None:
+        """Stop music playback. Called by the viewer when slideshow stops."""
+        if self._mp3_player is not None:
+            self._mp3_player.stop_playback()
 
     # --- Right side: file list + preview --------------------------------
 
@@ -441,7 +738,8 @@ class MainWindow(QMainWindow):
         Slot called when the selection in the folder tree changes.
 
         It resolves the selected item's path and reloads the file list
-        pane with the contents of that directory.
+        pane with the contents of that directory. Falls back to root if
+        the path is invalid (e.g. disconnected drive).
         """
         item = self._folder_model.itemFromIndex(current)
         if item is None:
@@ -449,6 +747,16 @@ class MainWindow(QMainWindow):
 
         path_str = item.data(Qt.ItemDataRole.UserRole)
         if not path_str:
+            return
+
+        if not self._is_path_valid_folder(path_str):
+            self._expand_and_select_path(
+                self._folder_root_path,
+                self._folder_tree_view,
+                self._folder_model,
+                self._folder_root_item,
+            )
+            self._update_go_up_button_state()
             return
 
         folder_path = Path(path_str)
@@ -476,7 +784,14 @@ class MainWindow(QMainWindow):
         using Next/Previous controls and an optional slideshow.
         """
         image_paths = [Path(p) for p in paths]
-        viewer = ImageViewerWindow(image_paths, start_index=index, parent=self)
+        music_folder = self._get_selected_music_folder_path()
+        viewer = ImageViewerWindow(
+            image_paths,
+            start_index=index,
+            music_folder=music_folder,
+            main_window=self,
+            parent=self,
+        )
         viewer.show()
 
     def _update_preview(self, image_path: Path | None) -> None:
@@ -525,7 +840,8 @@ class MainWindow(QMainWindow):
         return super().eventFilter(watched, event)
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
-        """Persist main window geometry when the window is closed."""
+        """Stop music and persist geometry when the window is closed."""
+        self.stop_slideshow_music()
         geo = self.saveGeometry()
         if not geo.isEmpty():
             set_main_window_geometry(geo.toBase64().data().decode("ascii"))

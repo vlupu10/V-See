@@ -204,3 +204,6 @@ requirements/screenshots/
 # Project temp/buffer directory
 tmp/
 !tmp/.gitkeep
+
+# Music folder (audio files are large, keep out of git)
+music/

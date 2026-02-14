@@ -28,11 +28,17 @@ conda env create -f environment.yml
 
 Alternatively, use a venv: `python3 -m venv .venv`, `source .venv/bin/activate`, `pip install -r requirements.txt`, then `python main.py`.
 
+**Optional – music playback during slideshow:** With the same environment active that you use to run the app (e.g. `conda activate v-see` when using `run.sh`), from the Project-photo-viewer directory:  
+`pip install -e "../vio-python[qt]"`  
+(Requires ffmpeg on Windows/Linux; macOS uses built-in afplay.)
+
 ### What’s included
 
-- **Manage mode:** Three-pane layout (folder tree, thumbnail grid, preview). Lazy folder tree; async thumbnails. Last folder and main window geometry are restored on startup.
-- **Display (View) window:** Open by double-clicking an image. Prev/Next with wrap-around; Slideshow ON/OFF; Configure Slideshow (interval in seconds, persisted). Viewer geometry is saved when closed.
-- **Persistence:** SQLite store in `<app folder>/config/state.db` for last folder, window geometries, and slideshow interval (travels with the app).
+- **Manage mode:** Three-pane layout with split left panel: **Photos folder** and **Music folder** (independent trees), thumbnail grid, preview. Below the Music folder tree: playable-files list and MP3 player (requires `mp3-player[qt]`) with transport controls and volume slider. Lazy folder tree; async thumbnails. Last folders and main window geometry are restored on startup.
+- **Display (View) window:** Open by double-clicking an image. Prev/Next with wrap-around; Slideshow ON/OFF; Stop music; Configure Slideshow (interval, music selection). Viewer geometry is saved when closed. Music auto-starts when slideshow runs if configured. Music stops when slideshow stops, when the viewer closes, or when the main window closes.
+- **Configure Slideshow:** Interval (1–3600 s) and music options: "No music", "All songs in the selected music folder", or start from a specific song. All persisted.
+- **Persistence:** SQLite store in `<app folder>/config/state.db` for last photos folder, last music folder, window geometries, slideshow interval, and slideshow music choice (travels with the app).
+- **Robustness:** Invalid or disconnected folder paths (e.g. external drive unplugged) fall back to the tree root; slideshow music resets to "No music" to avoid crashes.
 
 See `docs/ARCHITECTURE.md` for design, `docs/DISTRIBUTION.md` for building install kits (macOS, Windows, Linux), and `requirements/requirements.md` for full product requirements.
 

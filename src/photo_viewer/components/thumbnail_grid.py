@@ -127,7 +127,10 @@ class ThumbnailGridWidget(QFrame):
         self._file_items_by_path.clear()
         self._current_paths.clear()
 
-        if not folder_path.is_dir():
+        try:
+            if not folder_path.is_dir():
+                return
+        except OSError:
             return
 
         try:
@@ -135,7 +138,7 @@ class ThumbnailGridWidget(QFrame):
                 [p for p in folder_path.iterdir() if p.is_file()],
                 key=lambda p: p.name.lower(),
             )
-        except PermissionError:
+        except (PermissionError, OSError):
             return
 
         for path in entries:
