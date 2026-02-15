@@ -35,6 +35,7 @@ from photo_viewer.services.persistence import (
     get_slideshow_video_duration,
     get_viewer_window_geometry,
     set_viewer_window_geometry,
+    SLIDESHOW_VIDEO_DURATION_5_SECONDS,
     SLIDESHOW_VIDEO_DURATION_FULL,
 )
 
@@ -237,6 +238,12 @@ class ImageViewerWindow(QMainWindow):
         else:
             if not self._image_paths:
                 return
+            # If we're on a video that has ended, advance first to avoid media player
+            # in EndOfMedia/StoppedState when the timer fires (Qt/AVFoundation can crash).
+            path = self._image_paths[self._current_index]
+            if path.suffix.lower() in VIDEO_EXTENSIONS and self._viewer_media_player is not None:
+                if self._viewer_media_player.playbackState() != self._viewer_media_player.PlaybackState.PlayingState:
+                    self.show_next()
             interval_ms = max(100, self._slideshow_interval_ms)
             self._slideshow_timer.setInterval(int(interval_ms))
             self._slideshow_timer.start()
@@ -271,6 +278,7 @@ class ImageViewerWindow(QMainWindow):
             self._video_slideshow_timer.stop()
             self._video_slideshow_timer = None
         if self._viewer_media_player is not None:
+            self._disconnect_slideshow_video_end()
             self._viewer_media_player.stop()
 
     def _open_slideshow_config(self) -> None:
@@ -314,6 +322,17 @@ class ImageViewerWindow(QMainWindow):
 
     # --------------------------------------------------------------- image / video
 
+    def _disconnect_slideshow_video_end(self) -> None:
+        """Disconnect mediaStatusChanged to avoid double-connection and dangling handlers."""
+        if self._viewer_media_player is None:
+            return
+        try:
+            self._viewer_media_player.mediaStatusChanged.disconnect(
+                self._on_slideshow_video_media_status
+            )
+        except (TypeError, RuntimeError):
+            pass  # Not connected
+
     def _update_image(self) -> None:
         """Load and display the current image or play the current video."""
         # Cancel any pending video slideshow advance (user may have navigated)
@@ -333,6 +352,7 @@ class ImageViewerWindow(QMainWindow):
         # Video: play in video widget (if supported)
         if path.suffix.lower() in VIDEO_EXTENSIONS:
             if self._viewer_media_player is not None:
+                self._disconnect_slideshow_video_end()
                 self._content_stacked.setCurrentWidget(self._viewer_video_widget)
                 self._viewer_media_player.stop()
                 self._viewer_media_player.setSource(QUrl.fromLocalFile(str(path.resolve())))
@@ -349,6 +369,7 @@ class ImageViewerWindow(QMainWindow):
                         self._video_slideshow_timer.timeout.connect(self._on_slideshow_video_finished)
                         self._video_slideshow_timer.start(5000)
                     else:
+                        self._disconnect_slideshow_video_end()
                         self._viewer_media_player.mediaStatusChanged.connect(
                             self._on_slideshow_video_media_status
                         )
@@ -364,6 +385,7 @@ class ImageViewerWindow(QMainWindow):
         # Image: show pixmap
         self._content_stacked.setCurrentWidget(self._image_label)
         if self._viewer_media_player is not None:
+            self._disconnect_slideshow_video_end()
             self._viewer_media_player.stop()
 
         try:
@@ -391,10 +413,7 @@ class ImageViewerWindow(QMainWindow):
         """When video reaches end in slideshow (full mode), advance to next."""
         from PyQt6.QtMultimedia import QMediaPlayer
         if status == QMediaPlayer.MediaStatus.EndOfMedia and self._slideshow_running:
-            if self._viewer_media_player is not None:
-                self._viewer_media_player.mediaStatusChanged.disconnect(
-                    self._on_slideshow_video_media_status
-                )
+            self._disconnect_slideshow_video_end()
             self._on_slideshow_video_finished()
 
     def _on_slideshow_video_finished(self) -> None:
@@ -459,6 +478,7 @@ class ImageViewerWindow(QMainWindow):
         self._stop_slideshow_video()
         self._display_sleep_preventer.stop()
         if self._viewer_media_player is not None:
+            self._disconnect_slideshow_video_end()
             self._viewer_media_player.stop()
         geo = self.saveGeometry()
         if not geo.isEmpty():
