@@ -17,6 +17,11 @@ from pathlib import Path
 # Software decode is slower but stable for DJI Air 2S (HEVC) videos.
 os.environ.setdefault("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", "")
 
+# Suppress Qt Multimedia logs (ffmpeg version, "No HW decoder found", input metadata).
+from PyQt6.QtCore import QLoggingCategory
+
+QLoggingCategory.setFilterRules("qt.multimedia.*=false")
+
 from PyQt6.QtWidgets import QApplication
 
 
