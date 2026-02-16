@@ -14,7 +14,10 @@ Author: Viorel LUPU
 Date: 2025-02-10
 """
 
+import os
+import string
 import sys
+import time
 from pathlib import Path
 
 from PyQt6.QtCore import QByteArray, QEvent, Qt, QTimer, QUrl
@@ -110,12 +113,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("V-See – Manage")
         self.resize(1400, 900)
 
-        # Root for the folder browser. On Windows: drive root (C:\) so users can
-        # navigate to C:\Projects, C:\Users, etc. On macOS/Linux: home directory.
-        if sys.platform == "win32":
-            self._folder_root_path = Path(Path.home().anchor)  # e.g. C:\
-        else:
-            self._folder_root_path = Path.home()
+        # Folder roots for the tree. Windows: all drive letters (C:\, D:\, etc).
+        # macOS: Home + /Volumes (external drives). Linux: Home + /media/username.
+        self._folder_root_paths = self._get_folder_roots()
+        self._folder_root_path = (
+            self._folder_root_paths[0][1] if self._folder_root_paths else Path.home()
+        )
         self._folder_root_item: QStandardItem | None = None
         self._folder_model, self._folder_root_item = self._build_folder_model()
         self._music_folder_root_item: QStandardItem | None = None
@@ -138,6 +141,11 @@ class MainWindow(QMainWindow):
         # Music section: file list and player.
         self._music_file_list: QListWidget | None = None
         self._mp3_player: Mp3PlayerWidget | None = None
+
+        # Prevent viewer opens during init (avoids rapid spawn on Windows when
+        # Qt emits spurious signals before main window is shown).
+        self._main_window_ready = False
+        self._last_thumbnail_activated_at = 0.0
 
         self._init_ui()
 
@@ -413,30 +421,71 @@ class MainWindow(QMainWindow):
             except (OSError, PermissionError):
                 self._btn_music_go_up.setEnabled(False)
 
+    def _get_folder_roots(self) -> list[tuple[str, Path]]:
+        """
+        Return list of (display_name, path) for top-level folder roots.
+        Includes external drives/volumes so temporarily attached devices appear.
+        """
+        roots: list[tuple[str, Path]] = []
+        if sys.platform == "win32":
+            # All logical drives (C:\, D:\, etc.) including external USB drives.
+            for letter in string.ascii_uppercase:
+                drive = f"{letter}:\\"
+                try:
+                    if os.path.exists(drive):
+                        roots.append((drive, Path(drive)))
+                except OSError:
+                    pass
+        elif sys.platform == "darwin":
+            # Home directory + /Volumes (includes external drives, network mounts).
+            roots.append(("Home", Path.home()))
+            volumes = Path("/Volumes")
+            if volumes.is_dir():
+                roots.append(("Volumes", volumes))
+        else:
+            # Linux: Home + /media/username (typical mount point for removable media).
+            roots.append(("Home", Path.home()))
+            media_user = Path("/media") / os.environ.get("USER", "user")
+            if media_user.is_dir():
+                roots.append(("Media", media_user))
+            # Also add /mnt in case user mounts there.
+            if Path("/mnt").is_dir():
+                roots.append(("mnt", Path("/mnt")))
+        return roots if roots else [("Home", Path.home())]
+
     def _build_folder_model(self) -> tuple[QStandardItemModel, QStandardItem]:
         """
-        Create a model containing a single top-level node for the user's
-        home directory. Each node initially has a placeholder child so it
-        can be expanded; real children are populated on demand.
-        Returns (model, root_item).
+        Create a model with top-level nodes for each folder root (drives/volumes).
+        Each node has a placeholder child; real children are loaded on expand.
+        Returns (model, first_root_item).
         """
         model = QStandardItemModel(self)
         model.setHorizontalHeaderLabels(["Folders"])
 
-        root_item = model.invisibleRootItem()
+        invisible_root = model.invisibleRootItem()
+        first_item: QStandardItem | None = None
 
-        home_path = self._folder_root_path
-        home_display = home_path.name or str(home_path)
+        for display_name, path in self._folder_root_paths:
+            try:
+                if not path.exists() or not path.is_dir():
+                    continue
+            except (OSError, PermissionError):
+                continue
+            item = QStandardItem(display_name)
+            item.setData(str(path), Qt.ItemDataRole.UserRole)
+            item.appendRow(QStandardItem("…"))
+            invisible_root.appendRow(item)
+            if first_item is None:
+                first_item = item
 
-        home_item = QStandardItem(home_display)
-        home_item.setData(str(home_path), Qt.ItemDataRole.UserRole)
+        if first_item is None:
+            fallback = QStandardItem("Home")
+            fallback.setData(str(Path.home()), Qt.ItemDataRole.UserRole)
+            fallback.appendRow(QStandardItem("…"))
+            invisible_root.appendRow(fallback)
+            first_item = fallback
 
-        # Add a dummy child so the view shows an expand arrow; real
-        # children are inserted when the node is expanded.
-        home_item.appendRow(QStandardItem("…"))
-
-        root_item.appendRow(home_item)
-        return model, home_item
+        return model, first_item
 
     def _on_photos_folder_expanded(self, index) -> None:
         """Slot called when a photos folder node is expanded."""
@@ -542,20 +591,49 @@ class MainWindow(QMainWindow):
 
     def _is_path_valid_folder(self, path_str: str) -> bool:
         """
-        Return True if the path exists, is a directory, and is under the tree root.
+        Return True if the path exists, is a directory, and is under any tree root.
         Handles disconnected external drives, deleted folders, etc.
         """
         if not path_str or not path_str.strip():
             return False
         try:
-            root = self._folder_root_path.resolve()
             path = Path(path_str).resolve()
             if not path.is_dir():
                 return False
-            path.relative_to(root)  # raises ValueError if not under root
-            return True
-        except (ValueError, OSError, RuntimeError):
+            for _name, root in self._folder_root_paths:
+                try:
+                    path.relative_to(root.resolve())
+                    return True
+                except ValueError:
+                    continue
             return False
+        except (OSError, RuntimeError):
+            return False
+
+    def _get_root_item_for_path(
+        self, path: Path, model: QStandardItemModel | None = None
+    ) -> QStandardItem | None:
+        """Return the top-level tree item that contains the given path, or None."""
+        try:
+            path = path.resolve()
+        except (OSError, RuntimeError):
+            return None
+        m = model if model is not None else self._folder_model
+        invisible = m.invisibleRootItem()
+        for row in range(invisible.rowCount()):
+            item = invisible.child(row)
+            if item is None:
+                continue
+            root_str = item.data(Qt.ItemDataRole.UserRole)
+            if not root_str:
+                continue
+            try:
+                root = Path(root_str).resolve()
+                path.relative_to(root)
+                return item
+            except ValueError:
+                continue
+        return None
 
     def _restore_last_folder(self) -> None:
         """
@@ -624,13 +702,19 @@ class MainWindow(QMainWindow):
         """
         Expand the folder tree along the given path and select the final node.
         On OSError (e.g. disconnected drive), falls back to selecting root.
+        Supports multiple roots (drives/volumes); finds the correct root for the path.
         """
         if tree_view is None or root_item is None:
             return
 
+        root_item = self._get_root_item_for_path(path, model) or root_item
+        root_str = root_item.data(Qt.ItemDataRole.UserRole)
+        if not root_str:
+            return
+
         try:
             path = path.resolve()
-            root = self._folder_root_path.resolve()
+            root = Path(root_str).resolve()
         except (OSError, PermissionError):
             root_index = model.indexFromItem(root_item)
             tree_view.setCurrentIndex(root_index)
@@ -870,7 +954,18 @@ class MainWindow(QMainWindow):
 
         Opens a separate viewer window that can navigate within the list
         using Next/Previous controls and an optional slideshow.
+
+        Guard: ignore activations before main window is shown (avoids rapid
+        viewer spawn on Windows from spurious Qt signals during init).
+        Debounce: ignore repeated activations within 400ms.
         """
+        if not self._main_window_ready:
+            return
+        now = time.monotonic()
+        if now - self._last_thumbnail_activated_at < 0.4:
+            return
+        self._last_thumbnail_activated_at = now
+
         image_paths = [Path(p) for p in paths]
         music_folder = self._get_selected_music_folder_path()
         viewer = ImageViewerWindow(
@@ -960,6 +1055,11 @@ class MainWindow(QMainWindow):
         ):
             self._update_preview(self._preview_image_path)
         return super().eventFilter(watched, event)
+
+    def showEvent(self, event) -> None:  # type: ignore[override]
+        """Mark main window as ready so thumbnail activations can open viewer windows."""
+        super().showEvent(event)
+        self._main_window_ready = True
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         """Stop music, stop preview video, and persist geometry when the window is closed."""
