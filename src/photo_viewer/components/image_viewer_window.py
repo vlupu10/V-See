@@ -148,9 +148,9 @@ class ImageViewerWindow(QMainWindow):
         self._btn_slideshow = QPushButton("Slideshow ON", central)
         self._btn_slideshow.clicked.connect(self._toggle_slideshow)
 
-        self._btn_stop_music = QPushButton("Stop music", central)
-        self._btn_stop_music.setToolTip("Stop background music")
-        self._btn_stop_music.clicked.connect(self._stop_slideshow_music)
+        self._btn_pause_music = QPushButton("Pause music", central)
+        self._btn_pause_music.setToolTip("Pause background music (e.g. for a call); resume from main window")
+        self._btn_pause_music.clicked.connect(self._pause_slideshow_music)
 
         btn_config = QPushButton("Configure Slideshow", central)
         btn_config.clicked.connect(self._open_slideshow_config)
@@ -165,7 +165,7 @@ class ImageViewerWindow(QMainWindow):
         controls_layout.addWidget(self._btn_next)
         controls_layout.addSpacing(16)
         controls_layout.addWidget(self._btn_slideshow)
-        controls_layout.addWidget(self._btn_stop_music)
+        controls_layout.addWidget(self._btn_pause_music)
         controls_layout.addWidget(btn_config)
         controls_layout.addWidget(self._btn_fullscreen)
         controls_layout.addWidget(fullscreen_hint)
@@ -263,6 +263,12 @@ class ImageViewerWindow(QMainWindow):
         mw = self._main_window
         if mw is not None and hasattr(mw, "stop_slideshow_music"):
             mw.stop_slideshow_music()
+
+    def _pause_slideshow_music(self) -> None:
+        """Ask the main window to pause slideshow music (e.g. for a call). Resume from main window."""
+        mw = self._main_window
+        if mw is not None and hasattr(mw, "pause_slideshow_music"):
+            mw.pause_slideshow_music()
 
     def _on_slideshow_tick(self) -> None:
         """Timer callback: advance to the next item. Skips when a video is playing (video end advances)."""
@@ -474,7 +480,7 @@ class ImageViewerWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         """Stop slideshow music, video, allow display sleep, and persist geometry when the window is closed."""
-        self._stop_slideshow_music()
+        # self._stop_slideshow_music()
         self._stop_slideshow_video()
         self._display_sleep_preventer.stop()
         if self._viewer_media_player is not None:

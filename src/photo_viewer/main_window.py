@@ -811,6 +811,11 @@ class MainWindow(QMainWindow):
         if self._mp3_player is not None:
             self._mp3_player.stop_playback()
 
+    def pause_slideshow_music(self) -> None:
+        """Pause music playback. Called by the viewer (e.g. full-screen quick pause for a call)."""
+        if self._mp3_player is not None:
+            self._mp3_player.pause_playback()
+
     # --- Right side: file list + preview --------------------------------
 
     def _create_right_pane(self) -> QWidget:
