@@ -149,8 +149,8 @@ class ImageViewerWindow(QMainWindow):
         self._btn_slideshow.clicked.connect(self._toggle_slideshow)
 
         self._btn_pause_music = QPushButton("Pause music", central)
-        self._btn_pause_music.setToolTip("Pause background music (e.g. for a call); resume from main window")
-        self._btn_pause_music.clicked.connect(self._pause_slideshow_music)
+        self._btn_pause_music.setToolTip("Pause background music (e.g. for a call); click again to resume")
+        self._btn_pause_music.clicked.connect(self._toggle_pause_resume_music)
 
         btn_config = QPushButton("Configure Slideshow", central)
         btn_config.clicked.connect(self._open_slideshow_config)
@@ -265,10 +265,48 @@ class ImageViewerWindow(QMainWindow):
             mw.stop_slideshow_music()
 
     def _pause_slideshow_music(self) -> None:
-        """Ask the main window to pause slideshow music (e.g. for a call). Resume from main window."""
+        """Ask the main window to pause slideshow music (e.g. for a call). Resume via main window or the toggle button."""
         mw = self._main_window
         if mw is not None and hasattr(mw, "pause_slideshow_music"):
             mw.pause_slideshow_music()
+
+    def _update_music_button_text(self) -> None:
+        """
+        Set the pause/resume music button label and tooltip from main window state.
+        If music is paused, button shows 'Start music'; otherwise 'Pause music'.
+        Call after window show and after each toggle so the button stays in sync.
+        """
+        if self._btn_pause_music is None:
+            return
+        mw = self._main_window
+        paused = (
+            mw is not None
+            and hasattr(mw, "is_slideshow_music_paused")
+            and mw.is_slideshow_music_paused()
+        )
+        if paused:
+            self._btn_pause_music.setText("Start music")
+            self._btn_pause_music.setToolTip("Resume background music from where it was paused")
+        else:
+            self._btn_pause_music.setText("Pause music")
+            self._btn_pause_music.setToolTip("Pause background music (e.g. for a call); click again to resume")
+
+    def _toggle_pause_resume_music(self) -> None:
+        """
+        Toggle slideshow music between paused and playing.
+        If currently playing: pause and set button to 'Start music'.
+        If currently paused: resume and set button to 'Pause music'.
+        """
+        mw = self._main_window
+        if mw is None:
+            return
+        if getattr(mw, "is_slideshow_music_paused", lambda: False)():
+            if hasattr(mw, "resume_slideshow_music"):
+                mw.resume_slideshow_music()
+        else:
+            if hasattr(mw, "pause_slideshow_music"):
+                mw.pause_slideshow_music()
+        self._update_music_button_text()
 
     def _on_slideshow_tick(self) -> None:
         """Timer callback: advance to the next item. Skips when a video is playing (video end advances)."""
@@ -460,7 +498,8 @@ class ImageViewerWindow(QMainWindow):
     def showEvent(self, event) -> None:  # type: ignore[override]
         """
         After the window is first shown, restore size/position from persistence
-        (if any) and defer scaling so the first image is not displayed tiny.
+        (if any), defer scaling so the first image is not displayed tiny,
+        and sync the pause/resume music button with main window state.
         """
         super().showEvent(event)
         geo = get_viewer_window_geometry()
@@ -469,6 +508,7 @@ class ImageViewerWindow(QMainWindow):
             if not ba.isEmpty():
                 self.restoreGeometry(ba)
         QTimer.singleShot(0, self._apply_scaled_pixmap)
+        self._update_music_button_text()
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         """

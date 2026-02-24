@@ -812,9 +812,29 @@ class MainWindow(QMainWindow):
             self._mp3_player.stop_playback()
 
     def pause_slideshow_music(self) -> None:
-        """Pause music playback. Called by the viewer (e.g. full-screen quick pause for a call)."""
+        """
+        Pause slideshow music playback without resetting position.
+        Called by the viewer (e.g. full-screen quick pause for a call).
+        User can resume from main window or by clicking 'Start music' in the viewer.
+        """
         if self._mp3_player is not None:
             self._mp3_player.pause_playback()
+
+    def resume_slideshow_music(self) -> None:
+        """
+        Resume slideshow music from the paused position.
+        Called by the viewer when the user clicks 'Start music' after pausing.
+        No-op if not paused or if no player.
+        """
+        if self._mp3_player is not None:
+            self._mp3_player.resume_playback()
+
+    def is_slideshow_music_paused(self) -> bool:
+        """
+        Return True if slideshow music is currently paused.
+        Used by the viewer to show 'Start music' vs 'Pause music' on the toggle button.
+        """
+        return self._mp3_player is not None and self._mp3_player.is_paused()
 
     # --- Right side: file list + preview --------------------------------
 
