@@ -2,17 +2,24 @@
 # Create: conda env create -f environment.yml
 # Activate: conda activate v-see
 # Then run: ./run.sh
+#
+# Notes (Linux / fresh Miniconda):
+# - `nodefaults` avoids pulling Anaconda "defaults" (some installs require
+#   accepting Anaconda TOS for defaults; conda-forge alone does not).
+# - Python is capped below 3.13 so pip can install PyQt6 wheels reliably.
+# - Qt Multimedia lives inside the PyPI `PyQt6` wheel (there is no separate
+#   `PyQt6-Multimedia` package on PyPI).
 
 name: v-see
 channels:
   - conda-forge
   - nodefaults
 dependencies:
-  - python>=3.9
+  - python>=3.9,<3.13
   - pip
   - pillow>=10,<11
   - ffmpeg
+  # Qt 6.5+ xcb plugin needs libxcb-cursor (PyPI Qt does not bundle it); conda supplies it.
+  - xcb-util-cursor
   - pip:
     - "PyQt6>=6.7,<7"
-    - "PyQt6-Multimedia>=6.7"
-    - "PyQt6-MultimediaWidgets>=6.7"

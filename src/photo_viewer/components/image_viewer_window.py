@@ -376,7 +376,7 @@ class ImageViewerWindow(QMainWindow):
                 self._viewer_media_player.play()
                 return
             self._content_stacked.setCurrentWidget(self._image_label)
-            self._image_label.setText("Video playback requires PyQt6-Multimedia.")
+            self._image_label.setText("Video playback requires PyQt6 with Qt Multimedia.")
             self._image_label.setPixmap(QPixmap())
             self._filename_label.setText(path.name)
             self._current_pixmap = None

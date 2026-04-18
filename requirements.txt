@@ -1,8 +1,6 @@
 PyQt6>=6.7,<7
-PyQt6-Multimedia>=6.7
-PyQt6-MultimediaWidgets>=6.7
 Pillow>=10,<11
 
-# Optional: for slideshow music — run from Project-photo-viewer dir:
-#   pip install -e "../vio-python[qt]"
+# Slideshow music uses Qt Multimedia (no extra package). Optional vio-python
+# mp3_player adds SoundPlayer in photo_viewer.services.audio for other uses.
 

@@ -20,4 +20,12 @@ if ! conda env list | grep -qE '^v-see[\* ]'; then
 fi
 
 conda activate v-see
+
+# PyPI PyQt6 loads the xcb platform plugin from the system/conda libs; Qt 6.5+
+# needs libxcb-cursor. Conda provides it (see environment.yml) but does not
+# put $CONDA_PREFIX/lib on the default linker path for subprocess-free Python.
+if [[ "$(uname -s)" == "Linux" && -n "${CONDA_PREFIX:-}" ]]; then
+  export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+fi
+
 exec python main.py "$@"

@@ -5,7 +5,8 @@ Defines the primary window shown at startup, implementing the Manage-mode
 three-pane layout (folder tree, file list/thumbnails, preview/metadata).
 All panes are built via private helpers and wired with QSplitters for
 resizable layout. The folder tree mirrors the real filesystem (rooted at
-the user's home directory on macOS/Linux, or drive root on Windows).
+the user's home directory on macOS, filesystem root on Linux (so USB
+mounts under /media or /run/media are reachable), or drive root on Windows).
 Child directories are populated lazily as folders are expanded.
 The center pane uses the ThumbnailGridWidget component; the preview pane
 is still a placeholder.
@@ -36,21 +37,12 @@ from PyQt6.QtWidgets import (
 
 from photo_viewer.components.help_dialog import HelpDialog
 from photo_viewer.components.image_viewer_window import ImageViewerWindow
+from photo_viewer.components.qt_music_player_widget import (
+    QtMusicPlayerWidget,
+    load_sound_files,
+)
 from photo_viewer.components.slideshow_config_dialog import SlideshowConfigDialog
-
-_mp3_import_error: str | None = None
-try:
-    from mp3_player import Mp3PlayerWidget, load_sound_files
-except ImportError as e:
-    Mp3PlayerWidget = None  # type: ignore[misc, assignment]
-    _mp3_import_error = str(e)
-    try:
-        from photo_viewer.services.audio import load_sound_files
-    except ImportError:
-        load_sound_files = None  # type: ignore[assignment, misc]
-
-# Fallback when neither mp3_player nor services.audio is available (list still populates)
-AUDIO_EXTENSIONS = (".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac")
+from photo_viewer.components.thumbnail_grid import ThumbnailGridWidget
 
 # Video extensions for preview playback
 VIDEO_EXTENSIONS = frozenset({".mp4", ".mov", ".m4v", ".webm"})
@@ -63,25 +55,6 @@ try:
 except ImportError:
     QMediaPlayer = None  # type: ignore[misc, assignment]
     QVideoWidget = None  # type: ignore[misc, assignment]
-
-
-def _load_sound_files_fallback(sound_dir: Path) -> dict[str, Path]:
-    """Scan folder for audio files when mp3_player is not installed."""
-    try:
-        if not sound_dir.exists() or not sound_dir.is_dir():
-            return {}
-    except OSError:
-        return {}
-    sound_files: dict[str, Path] = {}
-    ext_lower = tuple(e.lower() for e in AUDIO_EXTENSIONS)
-    try:
-        for path in sorted(sound_dir.iterdir(), key=lambda p: p.name.lower()):
-            if path.is_file() and path.suffix.lower() in ext_lower:
-                sound_files[path.stem] = path
-    except (PermissionError, OSError):
-        pass
-    return sound_files
-from photo_viewer.components.thumbnail_grid import ThumbnailGridWidget
 from photo_viewer.services.persistence import (
     get_last_folder,
     get_last_music_folder,
@@ -90,6 +63,7 @@ from photo_viewer.services.persistence import (
     set_last_folder,
     set_last_music_folder,
     set_main_window_geometry,
+    set_slideshow_music,
 )
 from photo_viewer.services.thumbnails import ThumbnailService
 
@@ -99,7 +73,8 @@ class MainWindow(QMainWindow):
     Main application window.
 
     Starts in "Manage" mode with an ACDSee-style three-pane layout:
-    - Left:   Folder tree rooted at the user's home directory
+    - Left:   Folder tree rooted at filesystem root (Linux), home (macOS),
+               or drive root (Windows)
     - Center: ThumbnailGridWidget component (grid of thumbnails with async loading)
     - Bottom-right: Preview / metadata pane (placeholder; will show selected image and EXIF)
     """
@@ -110,10 +85,14 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("V-See – Manage")
         self.resize(1400, 900)
 
-        # Root for the folder browser. On Windows: drive root (C:\) so users can
-        # navigate to C:\Projects, C:\Users, etc. On macOS/Linux: home directory.
+        # Root for the folder browser. On Windows: drive root (C:\). On Linux:
+        # filesystem root so removable drives (e.g. /media/user/T7) are inside
+        # the tree; they are not under $HOME. On macOS: home (see /Volumes via
+        # Finder if needed — changing macOS to "/" would match Linux).
         if sys.platform == "win32":
             self._folder_root_path = Path(Path.home().anchor)  # e.g. C:\
+        elif sys.platform == "linux":
+            self._folder_root_path = Path("/")
         else:
             self._folder_root_path = Path.home()
         self._folder_root_item: QStandardItem | None = None
@@ -137,7 +116,7 @@ class MainWindow(QMainWindow):
         self._btn_music_go_up: QPushButton | None = None
         # Music section: file list and player.
         self._music_file_list: QListWidget | None = None
-        self._mp3_player: Mp3PlayerWidget | None = None
+        self._mp3_player: QtMusicPlayerWidget | None = None
 
         self._init_ui()
 
@@ -289,18 +268,9 @@ class MainWindow(QMainWindow):
         music_layout.addWidget(music_files_label)
         music_layout.addWidget(music_files_list)
 
-        # MP3 player controls
-        if Mp3PlayerWidget is not None:
-            self._mp3_player = Mp3PlayerWidget(music_section)
-            music_layout.addWidget(self._mp3_player)
-        else:
-            hint = "pip install -e \"../vio-python[qt]\" (from Project-photo-viewer)"
-            if _mp3_import_error:
-                hint = f"{_mp3_import_error} — {hint}"
-            no_player = QLabel(f"Install mp3-player[qt] for playback\n{hint}", music_section)
-            no_player.setStyleSheet("color: gray; font-size: 11px;")
-            no_player.setWordWrap(True)
-            music_layout.addWidget(no_player)
+        # Music player (Qt Multimedia — same stack as video preview)
+        self._mp3_player = QtMusicPlayerWidget(music_section)
+        music_layout.addWidget(self._mp3_player)
 
         vertical_splitter.addWidget(photos_section)
         vertical_splitter.addWidget(music_section)
@@ -340,7 +310,7 @@ class MainWindow(QMainWindow):
         """
         Navigate to the parent of the currently selected folder.
 
-        Windows only. Disabled when at drive root (parent equals self).
+        Disabled at filesystem / drive root (parent equals current).
         """
         current = self._get_selected_folder_path()
         if current is None:
@@ -415,9 +385,10 @@ class MainWindow(QMainWindow):
 
     def _build_folder_model(self) -> tuple[QStandardItemModel, QStandardItem]:
         """
-        Create a model containing a single top-level node for the user's
-        home directory. Each node initially has a placeholder child so it
-        can be expanded; real children are populated on demand.
+        Create a model containing a single top-level node for the folder root
+        (e.g. / on Linux, home on macOS, C:\\ on Windows). Each node initially
+        has a placeholder child so it can be expanded; real children are
+        populated on demand.
         Returns (model, root_item).
         """
         model = QStandardItemModel(self)
@@ -425,18 +396,18 @@ class MainWindow(QMainWindow):
 
         root_item = model.invisibleRootItem()
 
-        home_path = self._folder_root_path
-        home_display = home_path.name or str(home_path)
+        root_path = self._folder_root_path
+        root_display = root_path.name or str(root_path)
 
-        home_item = QStandardItem(home_display)
-        home_item.setData(str(home_path), Qt.ItemDataRole.UserRole)
+        root_node = QStandardItem(root_display)
+        root_node.setData(str(root_path), Qt.ItemDataRole.UserRole)
 
         # Add a dummy child so the view shows an expand arrow; real
         # children are inserted when the node is expanded.
-        home_item.appendRow(QStandardItem("…"))
+        root_node.appendRow(QStandardItem("…"))
 
-        root_item.appendRow(home_item)
-        return model, home_item
+        root_item.appendRow(root_node)
+        return model, root_node
 
     def _on_photos_folder_expanded(self, index) -> None:
         """Slot called when a photos folder node is expanded."""
@@ -499,7 +470,7 @@ class MainWindow(QMainWindow):
             return
         if not self._is_path_valid_folder(str(folder)):
             return
-        loader = load_sound_files if load_sound_files is not None else _load_sound_files_fallback
+        loader = load_sound_files
         try:
             songs = loader(folder)
         except (OSError, PermissionError):
@@ -704,7 +675,7 @@ class MainWindow(QMainWindow):
         start_from = None
         if music_choice not in (SlideshowConfigDialog.NO_MUSIC, SlideshowConfigDialog.ALL_SONGS):
             start_from = music_choice
-        loader = load_sound_files if load_sound_files else _load_sound_files_fallback
+        loader = load_sound_files
         try:
             songs = loader(folder)
         except (OSError, PermissionError):

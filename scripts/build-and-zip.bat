@@ -19,7 +19,7 @@ if errorlevel 1 (
 
 echo Ensuring PyInstaller, mp3-player, and video support are installed...
 pip install -q pyinstaller
-pip install -q PyQt6-Multimedia PyQt6-MultimediaWidgets
+pip install -q "PyQt6>=6.7,<7"
 if exist "..\vio-python" (
   echo Installing mp3-player[qt] for music support...
   pip install -q -e "..\vio-python[qt]"

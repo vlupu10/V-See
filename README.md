@@ -18,7 +18,7 @@ Pre-built releases (no Python required): [Releases](https://github.com/vlupu10/V
 | **End user (Windows)** | Extract **V-See-Windows.zip**, then double‑click **V-See.exe** or **Run V-See.bat**. No Python, conda, or build required. See [Installing V-See on Windows](docs/WINDOWS-SETUP.md#installing-v-see-end-users--no-build-required). |
 | **End user (macOS)** | Extract **V-See-macOS.zip**, then double‑click **V-See.app**. No Python, conda, or build required. See [Building install kits](docs/DISTRIBUTION.md). |
 
-**Important:** Conda, Python, vio-python, and mp3-player are required only for **developers** who build the app. End users simply download the zip, extract it, and run the app—no extra software needed.
+**Important:** Conda and Python are needed only for **developers** who run or build from source. End users who use a release zip do not need Python. Slideshow music uses **Qt Multimedia** in the app itself (no separate mp3-player install).
 
 ### Quick start (development)
 
@@ -36,13 +36,13 @@ conda env create -f environment.yml
 
 Alternatively, use a venv: `python3 -m venv .venv`, `source .venv/bin/activate`, `pip install -r requirements.txt`, then `python main.py`.
 
-**Optional – music playback during slideshow:** `pip install -e "../vio-python[qt]"` (from Project-photo-viewer). Requires ffmpeg on Windows/Linux; macOS uses built-in afplay.
+**Music during slideshow:** Works out of the box for common formats (MP3, WAV, etc.) via Qt Multimedia—the same stack as video preview.
 
-**Video thumbnails and playback:** ffmpeg (for thumbnails—prefers embedded thumbnail when present, e.g. DJI/GoPro) and PyQt6-Multimedia (included in `requirements.txt`).
+**Video thumbnails and playback:** ffmpeg (for thumbnails—prefers embedded thumbnail when present, e.g. DJI/GoPro) and PyQt6 with Qt Multimedia (included in `requirements.txt` via the main `PyQt6` package).
 
 ### What’s included
 
-- **Manage mode:** Three-pane layout with split left panel: **Photos folder** and **Music folder** (independent trees), thumbnail grid, preview. Below the Music folder tree: playable-files list and MP3 player (requires `mp3-player[qt]`) with transport controls and volume slider. Lazy folder tree; async thumbnails for images and videos (MP4, MOV, etc.). Selecting a video thumbnail plays it in the preview pane until another item is selected. Last folders and main window geometry are restored on startup.
+- **Manage mode:** Three-pane layout with split left panel: **Photos folder** and **Music folder** (independent trees), thumbnail grid, preview. Below the Music folder tree: playable-files list and built-in music player (Play / Pause / Stop / Next / volume) using Qt Multimedia. Lazy folder tree; async thumbnails for images and videos (MP4, MOV, etc.). Selecting a video thumbnail plays it in the preview pane until another item is selected. Last folders and main window geometry are restored on startup.
 - **Display (View) window:** Open by double-clicking an image or video. Prev/Next with wrap-around; Slideshow ON/OFF; Stop music; Configure Slideshow (interval, music selection, video duration). Viewer geometry is saved when closed. Music auto-starts when slideshow runs if configured. Music stops when slideshow stops, when the viewer closes, or when the main window closes.
 - **Video support:** Thumbnails for MP4, MOV, M4V, WebM. In Manage mode, selecting a video plays it in the preview pane. In slideshow, videos play automatically: either the first 5 seconds or the full video (configurable).
 - **Configure Slideshow:** Interval (1–3600 s), music options, and video duration: "Display first 5 seconds of video" or "Display full video". All persisted.

@@ -36,13 +36,7 @@ from photo_viewer.services.persistence import (
     SLIDESHOW_VIDEO_DURATION_FULL,
 )
 
-try:
-    from mp3_player import load_sound_files
-except ImportError:
-    try:
-        from photo_viewer.services.audio import load_sound_files
-    except ImportError:
-        load_sound_files = None  # type: ignore[assignment, misc]
+from photo_viewer.components.qt_music_player_widget import load_sound_files
 
 
 class SlideshowConfigDialog(QDialog):
@@ -93,7 +87,7 @@ class SlideshowConfigDialog(QDialog):
         )
         self._combo_music.addItem(self.NO_MUSIC)
         self._combo_music.addItem(self.ALL_SONGS)
-        if music_folder is not None and load_sound_files is not None:
+        if music_folder is not None:
             songs = load_sound_files(music_folder)
             for name in sorted(songs.keys()):
                 self._combo_music.addItem(name)
